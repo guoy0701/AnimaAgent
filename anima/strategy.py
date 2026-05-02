@@ -70,6 +70,8 @@ class StrategyProfile:
     category: TaskCategory
     # 每种动作类型的偏好分数（通过反馈累积）
     action_preferences: dict[str, float] = field(default_factory=dict)
+    # 每种动作类型的尝试次数（用于探索时优先选最少尝试的）
+    action_attempt_counts: dict[str, int] = field(default_factory=dict)
     # Skill的偏好分数
     skill_preferences: dict[str, float] = field(default_factory=dict)
     # 策略序列模式的偏好（记录成功的动作组合）
@@ -146,15 +148,12 @@ class StrategyNetwork:
         """探索模式：尝试不太常用的策略组合"""
         profile = self.profiles[category.value]
 
-        # 找出使用次数较少的动作类型
+        # 找出尝试次数较少的动作类型（按 attempt_counts 排序，而非偏好分数）
         all_actions = list(ActionType)
-        action_counts = {}
-        for action in all_actions:
-            action_counts[action] = profile.action_preferences.get(
-                action.value, 0)
 
-        # 倾向于选择探索较少的动作
-        actions = sorted(all_actions, key=lambda a: action_counts[a])
+        # 倾向于选择尝试次数最少的动作
+        actions = sorted(all_actions,
+                         key=lambda a: profile.action_attempt_counts.get(a.value, 0))
         selected_actions = actions[:2]  # 选两个最少尝试的
 
         # 随机选择Skill组合
@@ -235,17 +234,19 @@ class StrategyNetwork:
         if reward > 0.5:
             profile.success_count += 1
 
-        learning_rate = 0.2
+        # EMA alpha：防止分数无界增长（代替原来的累加方式）
+        ema_alpha = 0.2
 
-        # 更新动作偏好
+        # 更新动作偏好（EMA）并记录尝试次数
         for action in actions_taken:
             current = profile.action_preferences.get(action, 0.0)
-            profile.action_preferences[action] = current + learning_rate * reward
+            profile.action_preferences[action] = ema_alpha * reward + (1 - ema_alpha) * current
+            profile.action_attempt_counts[action] = profile.action_attempt_counts.get(action, 0) + 1
 
-        # 更新Skill偏好
+        # 更新Skill偏好（EMA）
         for skill in skills_used:
             current = profile.skill_preferences.get(skill, 0.0)
-            profile.skill_preferences[skill] = current + learning_rate * reward
+            profile.skill_preferences[skill] = ema_alpha * reward + (1 - ema_alpha) * current
 
         # 记录策略序列模式
         if reward > 0.5:
@@ -341,6 +342,7 @@ class StrategyNetwork:
                 cat: {
                     "category": p.category.value,
                     "action_preferences": p.action_preferences,
+                    "action_attempt_counts": p.action_attempt_counts,
                     "skill_preferences": p.skill_preferences,
                     "sequence_patterns": p.sequence_patterns,
                     "total_attempts": p.total_attempts,
@@ -367,8 +369,25 @@ class StrategyNetwork:
             if cat in net.profiles:
                 profile = net.profiles[cat]
                 profile.action_preferences = pd.get("action_preferences", {})
+                profile.action_attempt_counts = pd.get("action_attempt_counts", {})
                 profile.skill_preferences = pd.get("skill_preferences", {})
                 profile.sequence_patterns = pd.get("sequence_patterns", [])
                 profile.total_attempts = pd.get("total_attempts", 0)
                 profile.success_count = pd.get("success_count", 0)
+
+        # 恢复历史记录
+        for record_data in data.get("history", []):
+            try:
+                record = StrategyRecord(
+                    task_category=TaskCategory(record_data["task_category"]),
+                    context_features=record_data.get("context_features", {}),
+                    actions_taken=[ActionType(a) for a in record_data.get("actions_taken", [])],
+                    skills_used=record_data.get("skills_used", []),
+                    reward=record_data.get("reward", 0),
+                    timestamp=record_data.get("timestamp", 0),
+                )
+                net.history.append(record)
+            except (ValueError, KeyError):
+                continue
+
         return net
