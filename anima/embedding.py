@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
+    if len(a) != len(b):
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
@@ -51,7 +53,8 @@ class MockEmbeddingProvider(EmbeddingProvider):
     def embed(self, text: str) -> list[float]:
         vec = [0.0] * self._dimensions
         chars = list(text.lower())
-        ngrams = [text[i:i+2] for i in range(len(text) - 1)] + chars
+        lower_text = text.lower()
+        ngrams = [lower_text[i:i+2] for i in range(len(lower_text) - 1)] + chars
         for ng in ngrams:
             h = int(hashlib.md5(ng.encode()).hexdigest(), 16)
             idx = h % self._dimensions

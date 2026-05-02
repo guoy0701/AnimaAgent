@@ -180,9 +180,10 @@ class ExperienceGraph:
             if seed_id in self.nodes:
                 self.nodes[seed_id].activation = initial_activation
 
-        # BFS扩散
-        current_layer = set(seed_ids)
-        visited = set(seed_ids)
+        # BFS扩散 — filter out non-existent seed ids
+        valid_seeds = {sid for sid in seed_ids if sid in self.nodes}
+        current_layer = set(valid_seeds)
+        visited = set(valid_seeds)
 
         for depth in range(max_depth):
             next_layer = set()

@@ -10,6 +10,7 @@ dependencies = [
 [project.optional-dependencies]
 semantic = [
     "anthropic>=0.49",
+    "voyageai>=0.3",
     "numpy>=1.24",
 ]
 dev = [

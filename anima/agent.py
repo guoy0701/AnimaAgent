@@ -229,8 +229,9 @@ class AnimaAgent:
         """
         导入Agent的灵魂。
 
-        注意：导入的灵魂在新主人手下可能表现不同，
-        因为它的经验结构是与原主人共适应的。
+        注意：导入后需要重新调用configure_semantic()来启用语义层，
+        因为embedding_provider和extractor是运行时对象，不参与序列化。
+        导入的灵魂在新主人手下可能表现不同，因为它的经验结构是与原主人共适应的。
         """
         persona = PersonaLayer.load(filepath)
         agent = cls.__new__(cls)
