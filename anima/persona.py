@@ -1,0 +1,364 @@
+"""
+个性层 (Persona Layer)
+
+核心理念：在大模型和外部世界之间，插入一个可演化的"人格"层。
+这个层整合了经验图谱、策略网络和能力向量三个组件，
+让Agent不再是一个无状态的Prompt中转站，而是一个有积淀、有个性的"人"。
+
+架构示意：
+                ┌─────────────────────┐
+                │      大模型          │  ← 通用能力，所有Agent共享
+                │   (不被修改)         │
+                └─────────┬───────────┘
+                          │
+                ┌─────────▼───────────┐
+                │     个性层           │  ← 每个Agent独有，持续演化
+                │  (Persona Layer)     │
+                │                     │
+                │  · 经验图谱          │
+                │  · 策略网络          │
+                │  · 能力向量          │
+                └─────────┬───────────┘
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+     ┌────────┐     ┌────────┐     ┌────────┐
+     │ Skill A│     │ Skill B│     │ Skill C│
+     └────────┘     └────────┘     └────────┘
+"""
+
+import json
+import time
+from pathlib import Path
+
+from .experience_graph import ExperienceGraph, NodeType, EdgeType
+from .strategy import StrategyNetwork, TaskCategory, ActionType
+from .competence import CompetenceEmbedding
+
+
+class PersonaLayer:
+    """
+    个性层：三大组件的整合器。
+
+    负责：
+    1. 协调三个组件的工作
+    2. 在任务到来时，构建完整的"个性化上下文"注入LLM
+    3. 在任务结束后，从反馈中更新三个组件
+    4. 持久化和加载Agent的"灵魂"
+    """
+
+    def __init__(self, agent_name: str = "Anima"):
+        self.agent_name = agent_name
+        self.created_at = time.time()
+
+        # 三大核心组件
+        self.experience_graph = ExperienceGraph()
+        self.strategy_network = StrategyNetwork()
+        self.competence = CompetenceEmbedding()
+
+        # 已注册的Skill
+        self.skills: dict[str, dict] = {}
+
+        # 交互计数
+        self.interaction_count = 0
+
+    def register_skill(self, skill_name: str, description: str,
+                       categories: list[str] = None):
+        """注册一个Skill"""
+        self.skills[skill_name] = {
+            "name": skill_name,
+            "description": description,
+            "categories": categories or [],
+            "usage_count": 0,
+            "success_count": 0,
+        }
+        # 在经验图谱中创建Skill节点
+        self.experience_graph.add_node(
+            NodeType.SKILL, f"Skill: {skill_name} - {description}")
+
+    def prepare_context(self, task_description: str,
+                        task_category: TaskCategory = None) -> dict:
+        """
+        为一个新任务准备完整的"个性化上下文"。
+
+        这是个性层的核心输出——将三个组件的信息整合成
+        一个可以注入到LLM的system prompt中的上下文包。
+        """
+        self.interaction_count += 1
+
+        # 1. 在经验图谱中搜索相关经验
+        keywords = self._extract_keywords(task_description)
+        seed_nodes = self.experience_graph.find_by_content(keywords)
+        seed_ids = [n.id for n in seed_nodes[:5]]
+
+        activated = []
+        experience_context = "没有找到相关历史经验。"
+        if seed_ids:
+            activated = self.experience_graph.spreading_activation(seed_ids)
+            experience_context = self.experience_graph.extract_subgraph(
+                activated, max_nodes=8)
+
+        # 2. 从策略网络获取策略建议
+        if not task_category:
+            task_category = self._infer_category(task_description)
+        available_skills = list(self.skills.keys())
+        strategy = self.strategy_network.decide_strategy(
+            task_category, {"task": task_description}, available_skills)
+        strategy_context = self.strategy_network.generate_strategy_prompt(
+            task_category)
+
+        # 3. 获取能力画像
+        identity_context = self.competence.generate_identity_prompt()
+
+        # 4. 整合成完整的个性化上下文
+        full_context = self._build_system_prompt(
+            experience_context, strategy_context,
+            identity_context, strategy)
+
+        return {
+            "system_prompt_addition": full_context,
+            "strategy": strategy,
+            "activated_experiences": [(n.content, round(a, 2))
+                                     for n, a in activated[:5]],
+            "task_category": task_category.value,
+        }
+
+    def _build_system_prompt(self, experience: str, strategy: str,
+                              identity: str, strategy_plan: dict) -> str:
+        """构建注入到LLM的个性化system prompt"""
+        sections = [
+            f"# Agent {self.agent_name} 的个性化上下文",
+            f"（第 {self.interaction_count} 次交互）\n",
+            identity,
+            "\n## 相关历史经验\n",
+            experience,
+            "\n## 策略建议\n",
+            strategy,
+        ]
+
+        if strategy_plan.get("reasoning"):
+            sections.append(f"\n当前决策模式：{strategy_plan['reasoning']}")
+            sections.append(f"置信度：{strategy_plan.get('confidence', 0):.0%}")
+
+        if strategy_plan.get("skills"):
+            sections.append(f"\n建议使用的Skill：{', '.join(strategy_plan['skills'])}")
+
+        return "\n".join(sections)
+
+    def record_experience(self, task_description: str,
+                          task_category: TaskCategory,
+                          actions_taken: list[str],
+                          skills_used: list[str],
+                          outcome: str,
+                          problems_encountered: list[str] = None,
+                          solutions_found: list[str] = None):
+        """
+        记录一次完整的任务经历到经验图谱中。
+        这是Agent"积累经验"的核心机制。
+        """
+        # 创建任务节点
+        task_node = self.experience_graph.add_node(
+            NodeType.TASK, task_description,
+            metadata={"category": task_category.value,
+                      "actions": actions_taken,
+                      "skills": skills_used})
+
+        # 创建结果节点并连接
+        outcome_node = self.experience_graph.add_node(
+            NodeType.FEEDBACK, f"结果: {outcome}")
+        self.experience_graph.add_edge(
+            task_node.id, outcome_node.id, EdgeType.CAUSAL)
+
+        # 连接到使用的Skill
+        for skill_name in skills_used:
+            skill_nodes = [n for n in self.experience_graph.find_by_type(
+                NodeType.SKILL) if skill_name in n.content]
+            for sn in skill_nodes:
+                self.experience_graph.add_edge(
+                    task_node.id, sn.id, EdgeType.REQUIRES)
+
+        # 记录问题和解决方案
+        if problems_encountered:
+            for prob in problems_encountered:
+                prob_node = self.experience_graph.add_node(
+                    NodeType.PROBLEM, prob)
+                self.experience_graph.add_edge(
+                    task_node.id, prob_node.id, EdgeType.CAUSAL)
+
+                if solutions_found:
+                    for sol in solutions_found:
+                        sol_node = self.experience_graph.add_node(
+                            NodeType.SOLUTION, sol)
+                        self.experience_graph.add_edge(
+                            prob_node.id, sol_node.id, EdgeType.SOLVED_BY)
+
+        # 尝试发现与之前任务的关联
+        self._discover_connections(task_node)
+
+    def learn_from_feedback(self, task_category: TaskCategory,
+                            actions_taken: list[str],
+                            skills_used: list[str],
+                            reward: float):
+        """
+        从主人的反馈中学习，更新所有三个组件。
+        """
+        # 1. 更新策略网络
+        self.strategy_network.learn_from_feedback(
+            task_category, actions_taken, skills_used, reward)
+
+        # 2. 对经验图谱做赫布学习（强化共同激活的节点间的连接）
+        keywords = actions_taken + skills_used
+        seed_nodes = self.experience_graph.find_by_content(keywords)
+        seed_ids = [n.id for n in seed_nodes[:5]]
+        if seed_ids:
+            activated = self.experience_graph.spreading_activation(seed_ids)
+            self.experience_graph.hebbian_update(activated)
+
+        # 3. 更新能力向量
+        graph_stats = self.experience_graph.get_stats()
+        strategy_summary = self.strategy_network.get_profile_summary()
+        self.competence.update_from_graph_and_strategy(
+            graph_stats, strategy_summary)
+
+        # 4. 更新Skill统计
+        for skill in skills_used:
+            if skill in self.skills:
+                self.skills[skill]["usage_count"] += 1
+                if reward > 0.5:
+                    self.skills[skill]["success_count"] += 1
+
+    def _discover_connections(self, new_node):
+        """发现新节点与已有节点之间的潜在关联"""
+        keywords = new_node.content.lower().split()
+        for existing_node in self.experience_graph.nodes.values():
+            if existing_node.id == new_node.id:
+                continue
+            if existing_node.node_type == new_node.node_type:
+                # 同类型节点之间查找相似性
+                existing_words = set(existing_node.content.lower().split())
+                new_words = set(keywords)
+                overlap = len(existing_words & new_words)
+                total = len(existing_words | new_words)
+                if total > 0 and overlap / total > 0.5:
+                    self.experience_graph.add_edge(
+                        new_node.id, existing_node.id,
+                        EdgeType.SIMILAR, weight=overlap / total)
+
+    def _extract_keywords(self, text: str) -> list[str]:
+        """从文本中提取关键词（简单实现）"""
+        stop_words = {"的", "了", "在", "是", "我", "有", "和", "就",
+                      "不", "人", "都", "一", "一个", "上", "也", "很",
+                      "到", "说", "要", "去", "你", "会", "着", "没有",
+                      "看", "好", "自己", "这", "他", "她", "它", "们",
+                      "the", "a", "an", "is", "are", "was", "were",
+                      "in", "on", "at", "to", "for", "of", "with",
+                      "and", "or", "but", "not", "this", "that",
+                      "i", "me", "my", "you", "your", "he", "she",
+                      "it", "we", "they", "can", "will", "do", "does",
+                      "help", "please", "want", "need", "make",
+                      "帮", "请", "想", "能", "把", "让", "给", "用",
+                      "做", "写", "看看", "一下"}
+        words = text.lower().replace("，", " ").replace("。", " ").replace(
+            "、", " ").replace("？", " ").replace("！", " ").split()
+        return [w for w in words if w not in stop_words and len(w) > 1]
+
+    def _infer_category(self, task: str) -> TaskCategory:
+        """从任务描述推断任务类别"""
+        category_keywords = {
+            TaskCategory.DATA_ANALYSIS: ["数据", "分析", "统计", "图表",
+                                         "data", "analysis", "chart"],
+            TaskCategory.CODE_WRITING: ["代码", "编程", "函数", "程序",
+                                        "code", "script", "function", "bug"],
+            TaskCategory.CONTENT_CREATION: ["写", "文章", "文案", "内容",
+                                            "write", "article", "content"],
+            TaskCategory.PROBLEM_SOLVING: ["问题", "解决", "修复", "错误",
+                                           "problem", "solve", "fix", "error"],
+            TaskCategory.COMMUNICATION: ["邮件", "回复", "沟通", "消息",
+                                         "email", "reply", "message"],
+            TaskCategory.RESEARCH: ["调研", "研究", "查找", "搜索",
+                                    "research", "search", "find"],
+            TaskCategory.PLANNING: ["计划", "规划", "安排", "策略",
+                                    "plan", "schedule", "strategy"],
+            TaskCategory.CREATIVE: ["创意", "设计", "创作", "灵感",
+                                    "creative", "design", "idea"],
+        }
+
+        task_lower = task.lower()
+        best_cat = TaskCategory.UNKNOWN
+        best_score = 0
+
+        for cat, keywords in category_keywords.items():
+            score = sum(1 for kw in keywords if kw in task_lower)
+            if score > best_score:
+                best_score = score
+                best_cat = cat
+
+        return best_cat
+
+    def maintenance(self):
+        """
+        定期维护——相当于Agent的"睡眠"。
+        整理经验、衰减不重要的记忆、更新能力画像。
+        """
+        # 衰减长期不活跃的节点
+        self.experience_graph.decay_all()
+
+        # 更新能力画像
+        graph_stats = self.experience_graph.get_stats()
+        strategy_summary = self.strategy_network.get_profile_summary()
+        self.competence.update_from_graph_and_strategy(
+            graph_stats, strategy_summary)
+
+    def get_full_status(self) -> dict:
+        """获取Agent的完整状态概览"""
+        return {
+            "agent_name": self.agent_name,
+            "interactions": self.interaction_count,
+            "created_at": self.created_at,
+            "graph_stats": self.experience_graph.get_stats(),
+            "strategy_summary": self.strategy_network.get_profile_summary(),
+            "competence": {
+                "scores": self.competence.competence_scores,
+                "style": self.competence.style_tendencies,
+                "domain_tags": self.competence.domain_tags,
+                "confidence": self.competence.get_confidence(),
+            },
+            "skills": {name: {
+                "usage": info["usage_count"],
+                "success": info["success_count"],
+            } for name, info in self.skills.items()},
+        }
+
+    def save(self, filepath: str):
+        """将Agent的"灵魂"持久化到文件"""
+        data = {
+            "agent_name": self.agent_name,
+            "created_at": self.created_at,
+            "interaction_count": self.interaction_count,
+            "experience_graph": self.experience_graph.to_dict(),
+            "strategy_network": self.strategy_network.to_dict(),
+            "competence": self.competence.to_dict(),
+            "skills": self.skills,
+        }
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def load(cls, filepath: str) -> "PersonaLayer":
+        """从文件加载Agent的"灵魂" """
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        persona = cls(agent_name=data.get("agent_name", "Anima"))
+        persona.created_at = data.get("created_at", time.time())
+        persona.interaction_count = data.get("interaction_count", 0)
+        persona.experience_graph = ExperienceGraph.from_dict(
+            data["experience_graph"])
+        persona.strategy_network = StrategyNetwork.from_dict(
+            data["strategy_network"])
+        persona.competence = CompetenceEmbedding.from_dict(
+            data["competence"])
+        persona.skills = data.get("skills", {})
+        return persona
