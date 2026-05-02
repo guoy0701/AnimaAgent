@@ -338,6 +338,35 @@ class ExperienceGraph:
             if edge.co_activation_count == 0:
                 edge.weight *= 0.99  # 从未共同激活的边缓慢衰减
 
+    def get_topology_stats(self) -> dict:
+        """Per-domain topology statistics for competence derivation."""
+        domain_nodes = {}
+        for node in self.nodes.values():
+            domain = node.metadata.get("category")
+            if node.node_type == NodeType.TASK and domain:
+                domain_nodes.setdefault(domain, set()).add(node.id)
+                for neighbor_id, edge in self._forward.get(node.id, []):
+                    domain_nodes[domain].add(neighbor_id)
+
+        results = {}
+        for domain, node_ids in domain_nodes.items():
+            edge_count = sum(
+                1 for e in self.edges
+                if e.source_id in node_ids and e.target_id in node_ids
+            )
+            node_count = len(node_ids)
+            concept_count = sum(
+                1 for nid in node_ids
+                if nid in self.nodes and self.nodes[nid].node_type == NodeType.CONCEPT
+            )
+            results[domain] = {
+                "node_count": node_count,
+                "edge_count": edge_count,
+                "edge_density": edge_count / max(node_count, 1),
+                "concept_count": concept_count,
+            }
+        return results
+
     def get_stats(self) -> dict:
         """返回图谱的统计信息"""
         type_counts = {}

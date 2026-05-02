@@ -134,8 +134,9 @@ class PersonaLayer:
         strategy_context = self.strategy_network.generate_strategy_prompt(
             task_category)
 
-        # 3. 获取能力画像
-        identity_context = self.competence.generate_identity_prompt()
+        # 3. 获取能力画像（含经验亮点）
+        highlights = self._get_experience_highlights()
+        identity_context = self.competence.generate_identity_prompt(highlights)
 
         # 4. 整合成完整的个性化上下文
         full_context = self._build_system_prompt(
@@ -281,8 +282,9 @@ class PersonaLayer:
         # 3. 更新能力向量
         graph_stats = self.experience_graph.get_stats()
         strategy_summary = self.strategy_network.get_profile_summary()
+        topology_stats = self.experience_graph.get_topology_stats()
         self.competence.update_from_graph_and_strategy(
-            graph_stats, strategy_summary)
+            graph_stats, strategy_summary, topology_stats)
 
         # 4. 更新Skill统计
         for skill in skills_used:
@@ -355,6 +357,19 @@ class PersonaLayer:
         return [w.strip() for w in words
                 if w.strip() and w.strip() not in stop_words and len(w.strip()) > 1]
 
+    def _get_experience_highlights(self) -> list:
+        """从成功的任务节点中提取经验亮点，用于身份提示词。"""
+        highlights = []
+        task_nodes = self.experience_graph.find_by_type(NodeType.TASK)
+        for task in task_nodes[-10:]:
+            for neighbor_id, edge in self.experience_graph._forward.get(task.id, []):
+                neighbor = self.experience_graph.nodes.get(neighbor_id)
+                if neighbor and neighbor.node_type == NodeType.FEEDBACK:
+                    if "成功" in neighbor.content:
+                        highlights.append(task.content)
+                        break
+        return highlights[-5:]
+
     def _infer_category(self, task: str) -> TaskCategory:
         """从任务描述推断任务类别"""
         category_keywords = {
@@ -399,8 +414,9 @@ class PersonaLayer:
         # 更新能力画像
         graph_stats = self.experience_graph.get_stats()
         strategy_summary = self.strategy_network.get_profile_summary()
+        topology_stats = self.experience_graph.get_topology_stats()
         self.competence.update_from_graph_and_strategy(
-            graph_stats, strategy_summary)
+            graph_stats, strategy_summary, topology_stats)
 
     def get_full_status(self) -> dict:
         """获取Agent的完整状态概览"""

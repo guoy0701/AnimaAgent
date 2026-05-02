@@ -110,3 +110,33 @@ class TestSemanticSearch:
         # Only highly similar results should be returned
         for node, sim in results:
             assert sim >= 0.5, f"Node '{node.content}' has similarity {sim} < 0.5"
+
+
+class TestGraphTopologyStats:
+    def test_returns_domain_stats(self):
+        g = ExperienceGraph()
+        t1 = g.add_node(NodeType.TASK, "任务1",
+                         metadata={"category": "data_analysis"})
+        c1 = g.add_node(NodeType.CONCEPT, "用户留存")
+        g.add_edge(t1.id, c1.id, EdgeType.COMPOSED_OF)
+
+        stats = g.get_topology_stats()
+        assert "data_analysis" in stats
+        assert stats["data_analysis"]["node_count"] >= 1
+
+    def test_empty_graph_returns_empty_stats(self):
+        g = ExperienceGraph()
+        stats = g.get_topology_stats()
+        assert stats == {}
+
+    def test_counts_concepts_correctly(self):
+        g = ExperienceGraph()
+        t1 = g.add_node(NodeType.TASK, "任务1",
+                         metadata={"category": "data_analysis"})
+        c1 = g.add_node(NodeType.CONCEPT, "概念1")
+        c2 = g.add_node(NodeType.CONCEPT, "概念2")
+        g.add_edge(t1.id, c1.id, EdgeType.COMPOSED_OF)
+        g.add_edge(t1.id, c2.id, EdgeType.COMPOSED_OF)
+
+        stats = g.get_topology_stats()
+        assert stats["data_analysis"]["concept_count"] == 2
