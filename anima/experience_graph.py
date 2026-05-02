@@ -40,6 +40,23 @@ class EdgeType(Enum):
     REINFORCES = "reinforces"   # 强化关系
 
 
+# 有向边：激活只沿 source→target 方向传播
+DIRECTED_EDGE_TYPES = {
+    EdgeType.CAUSAL,
+    EdgeType.TEMPORAL,
+    EdgeType.SOLVED_BY,
+    EdgeType.REQUIRES,
+    EdgeType.COMPOSED_OF,
+}
+
+# 无向边：激活双向传播
+UNDIRECTED_EDGE_TYPES = {
+    EdgeType.SIMILAR,
+    EdgeType.CONFLICTS,
+    EdgeType.REINFORCES,
+}
+
+
 @dataclass
 class Node:
     id: str
@@ -85,7 +102,8 @@ class ExperienceGraph:
     def __init__(self):
         self.nodes: dict[str, Node] = {}
         self.edges: list[Edge] = []
-        self._adjacency: dict[str, list[tuple[str, Edge]]] = {}  # 邻接表
+        self._forward: dict[str, list[tuple[str, Edge]]] = {}   # source→target
+        self._backward: dict[str, list[tuple[str, Edge]]] = {}  # target→source
 
     def _generate_id(self, content: str, node_type: str) -> str:
         raw = f"{node_type}:{content}:{time.time()}"
@@ -103,7 +121,8 @@ class ExperienceGraph:
             metadata=metadata or {}
         )
         self.nodes[node_id] = node
-        self._adjacency.setdefault(node_id, [])
+        self._forward.setdefault(node_id, [])
+        self._backward.setdefault(node_id, [])
         return node
 
     def add_edge(self, source_id: str, target_id: str,
@@ -112,17 +131,29 @@ class ExperienceGraph:
         if source_id not in self.nodes or target_id not in self.nodes:
             return None
 
-        # 检查是否已存在同类型的边
-        for _, edge in self._adjacency.get(source_id, []):
+        # 检查是否已存在同类型的边（有向边只查 source→target）
+        for _, edge in self._forward.get(source_id, []):
             if edge.target_id == target_id and edge.edge_type == edge_type:
                 edge.weight = min(edge.weight + 0.1, 5.0)  # 强化已有边
                 return edge
+        # 无向边还需检查反向是否已存在
+        if edge_type in UNDIRECTED_EDGE_TYPES:
+            for _, edge in self._forward.get(target_id, []):
+                if edge.target_id == source_id and edge.edge_type == edge_type:
+                    edge.weight = min(edge.weight + 0.1, 5.0)
+                    return edge
 
         edge = Edge(source_id=source_id, target_id=target_id,
                     edge_type=edge_type, weight=weight)
         self.edges.append(edge)
-        self._adjacency.setdefault(source_id, []).append((target_id, edge))
-        self._adjacency.setdefault(target_id, []).append((source_id, edge))  # 双向
+
+        self._forward.setdefault(source_id, []).append((target_id, edge))
+        self._backward.setdefault(target_id, []).append((source_id, edge))
+
+        if edge_type in UNDIRECTED_EDGE_TYPES:
+            self._forward.setdefault(target_id, []).append((source_id, edge))
+            self._backward.setdefault(source_id, []).append((target_id, edge))
+
         return edge
 
     def spreading_activation(self, seed_ids: list[str],
@@ -160,7 +191,7 @@ class ExperienceGraph:
                 if current_activation < min_activation:
                     continue
 
-                for neighbor_id, edge in self._adjacency.get(node_id, []):
+                for neighbor_id, edge in self._forward.get(node_id, []):
                     # 激活传播量 = 当前激活值 × 衰减因子 × 边权重 × 目标节点强度
                     propagated = (current_activation * decay_factor *
                                   edge.weight * self.nodes[neighbor_id].strength)
@@ -214,7 +245,7 @@ class ExperienceGraph:
 
                 # 检查是否已有边
                 has_edge = False
-                for _, edge in self._adjacency.get(node_i.id, []):
+                for _, edge in self._forward.get(node_i.id, []):
                     if edge.target_id == node_j.id or edge.source_id == node_j.id:
                         has_edge = True
                         break
@@ -258,7 +289,7 @@ class ExperienceGraph:
 
             # 找到与此节点相关的边，提供关系上下文
             related = []
-            for neighbor_id, edge in self._adjacency.get(node.id, []):
+            for neighbor_id, edge in self._forward.get(node.id, []):
                 neighbor = self.nodes.get(neighbor_id)
                 if neighbor and any(n.id == neighbor_id for n, _ in top_nodes):
                     related.append(f"  → {edge.edge_type.value}: {neighbor.content}")
@@ -329,7 +360,8 @@ class ExperienceGraph:
                 metadata=nd.get("metadata", {}),
             )
             graph.nodes[nid] = node
-            graph._adjacency.setdefault(nid, [])
+            graph._forward.setdefault(nid, [])
+            graph._backward.setdefault(nid, [])
 
         for ed in data["edges"]:
             edge = Edge(
@@ -339,8 +371,16 @@ class ExperienceGraph:
                 co_activation_count=ed.get("co_activation_count", 0),
             )
             graph.edges.append(edge)
-            graph._adjacency.setdefault(edge.source_id, []).append(
+
+            graph._forward.setdefault(edge.source_id, []).append(
                 (edge.target_id, edge))
-            graph._adjacency.setdefault(edge.target_id, []).append(
+            graph._backward.setdefault(edge.target_id, []).append(
                 (edge.source_id, edge))
+
+            if edge.edge_type in UNDIRECTED_EDGE_TYPES:
+                graph._forward.setdefault(edge.target_id, []).append(
+                    (edge.source_id, edge))
+                graph._backward.setdefault(edge.source_id, []).append(
+                    (edge.target_id, edge))
+
         return graph
