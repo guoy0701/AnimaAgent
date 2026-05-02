@@ -108,3 +108,88 @@ class TestChineseConnections:
         edges = persona.experience_graph.edges
         similar_edges = [e for e in edges if e.edge_type == EdgeType.SIMILAR]
         assert len(similar_edges) > 0, "Should discover similarity between related Chinese tasks"
+
+
+class TestPhase1Integration:
+    def test_two_agents_diverge_with_different_experiences(self):
+        """Core claim: two agents with same skills but different experiences behave differently."""
+        from anima.agent import AnimaAgent
+        import os
+
+        # Clean up any previous test files
+        for f in ["/tmp/test_alpha_int.json", "/tmp/test_beta_int.json"]:
+            if os.path.exists(f):
+                os.remove(f)
+
+        alpha = AnimaAgent("AlphaInt", save_path="/tmp/test_alpha_int.json")
+        beta = AnimaAgent("BetaInt", save_path="/tmp/test_beta_int.json")
+
+        for name, desc in [("sql_query", "SQL查询"), ("python_coding", "Python编程")]:
+            alpha.register_skill(name, desc)
+            beta.register_skill(name, desc)
+
+        # Alpha: data analysis experiences (decompose_first works well)
+        alpha.think("分析用户留存数据")
+        alpha.feedback(0.9, ["decompose_first", "use_skill"], ["sql_query"],
+                       ["数据有缺失值"], ["中位数填充"])
+        alpha.think("分析销售趋势")
+        alpha.feedback(0.8, ["decompose_first", "search_first"], ["sql_query"])
+
+        # Beta: coding experiences (direct_execution works well)
+        beta.think("编写自动部署的Python代码")
+        beta.feedback(0.9, ["direct_execution", "iterate_and_refine"], ["python_coding"])
+        beta.think("编程实现权限系统重构")
+        beta.feedback(0.8, ["direct_execution", "use_skill"], ["python_coding"])
+
+        # Verify strategy preferences diverged
+        alpha_da = alpha.persona.strategy_network.profiles["data_analysis"].action_preferences
+        beta_cw = beta.persona.strategy_network.profiles["code_writing"].action_preferences
+
+        # Alpha should prefer decompose_first for data_analysis
+        assert alpha_da.get("decompose_first", 0) > alpha_da.get("direct_execution", 0), \
+            f"Alpha should prefer decompose_first but got {alpha_da}"
+        # Beta should prefer direct_execution for code_writing
+        assert beta_cw.get("direct_execution", 0) > beta_cw.get("decompose_first", 0), \
+            f"Beta should prefer direct_execution but got {beta_cw}"
+
+    def test_experience_graph_grows_with_interactions(self):
+        from anima.agent import AnimaAgent
+        import os
+
+        path = "/tmp/test_growth.json"
+        if os.path.exists(path):
+            os.remove(path)
+
+        agent = AnimaAgent("Growth", save_path=path)
+        agent.register_skill("coding", "编程")
+
+        initial_nodes = len(agent.persona.experience_graph.nodes)
+
+        agent.think("写一个排序算法")
+        agent.feedback(0.8, ["direct_execution"], ["coding"], ["效率低"], ["改用快排"])
+
+        final_nodes = len(agent.persona.experience_graph.nodes)
+        assert final_nodes > initial_nodes, "Graph should grow after recording experience"
+
+        # Verify problem-solution pair exists
+        from anima.experience_graph import NodeType
+        problems = agent.persona.experience_graph.find_by_type(NodeType.PROBLEM)
+        solutions = agent.persona.experience_graph.find_by_type(NodeType.SOLUTION)
+        assert len(problems) == 1
+        assert len(solutions) == 1
+
+    def test_experience_graph_has_no_duplicate_skills(self):
+        from anima.agent import AnimaAgent
+        from anima.experience_graph import NodeType
+        import os
+
+        path = "/tmp/test_dedup_int.json"
+        if os.path.exists(path):
+            os.remove(path)
+
+        agent = AnimaAgent("Dedup", save_path=path)
+        agent.register_skill("sql", "SQL")
+        agent.register_skill("sql", "SQL updated")
+
+        skill_nodes = agent.persona.experience_graph.find_by_type(NodeType.SKILL)
+        assert len(skill_nodes) == 1
