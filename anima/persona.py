@@ -65,6 +65,12 @@ class PersonaLayer:
     def register_skill(self, skill_name: str, description: str,
                        categories: list[str] = None):
         """注册一个Skill"""
+        if skill_name in self.skills:
+            # 更新元数据，但不创建重复节点
+            self.skills[skill_name]["description"] = description
+            self.skills[skill_name]["categories"] = categories or []
+            return
+
         self.skills[skill_name] = {
             "name": skill_name,
             "description": description,
@@ -177,20 +183,28 @@ class PersonaLayer:
                 self.experience_graph.add_edge(
                     task_node.id, sn.id, EdgeType.REQUIRES)
 
-        # 记录问题和解决方案
+        # 记录问题和解决方案（按索引 1:1 配对，避免笛卡尔积）
         if problems_encountered:
-            for prob in problems_encountered:
+            for i, prob in enumerate(problems_encountered):
                 prob_node = self.experience_graph.add_node(
                     NodeType.PROBLEM, prob)
                 self.experience_graph.add_edge(
                     task_node.id, prob_node.id, EdgeType.CAUSAL)
 
-                if solutions_found:
-                    for sol in solutions_found:
-                        sol_node = self.experience_graph.add_node(
-                            NodeType.SOLUTION, sol)
-                        self.experience_graph.add_edge(
-                            prob_node.id, sol_node.id, EdgeType.SOLVED_BY)
+                # 按索引配对（1:1），而非每个方案连接所有问题
+                if solutions_found and i < len(solutions_found):
+                    sol_node = self.experience_graph.add_node(
+                        NodeType.SOLUTION, solutions_found[i])
+                    self.experience_graph.add_edge(
+                        prob_node.id, sol_node.id, EdgeType.SOLVED_BY)
+
+        # 处理多出的解决方案（没有对应问题的部分）
+        if solutions_found and len(solutions_found) > len(problems_encountered or []):
+            for sol in solutions_found[len(problems_encountered or []):]:
+                sol_node = self.experience_graph.add_node(
+                    NodeType.SOLUTION, sol)
+                self.experience_graph.add_edge(
+                    task_node.id, sol_node.id, EdgeType.CAUSAL)
 
         # 尝试发现与之前任务的关联
         self._discover_connections(task_node)

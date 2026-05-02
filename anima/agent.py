@@ -122,6 +122,7 @@ class AnimaAgent:
                  solutions: list[str] = None):
         """
         主人给予反馈——这是Agent成长的核心驱动力。
+        此方法会自动记录经验并触发学习，调用方不需要手动调用record_experience。
 
         reward: -1.0 到 1.0
         """
