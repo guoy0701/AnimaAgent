@@ -64,6 +64,15 @@ class PersonaLayer:
         # 交互计数
         self.interaction_count = 0
 
+        # 语义层（可选）
+        self._embedding_provider = None
+        self._extractor = None
+
+    def configure_semantic(self, embedding_provider=None, extractor=None):
+        """配置语义层：embedding provider 和概念提取器（均可选）。"""
+        self._embedding_provider = embedding_provider
+        self._extractor = extractor
+
     def register_skill(self, skill_name: str, description: str,
                        categories: list[str] = None):
         """注册一个Skill"""
@@ -95,9 +104,14 @@ class PersonaLayer:
         self.interaction_count += 1
 
         # 1. 在经验图谱中搜索相关经验
-        keywords = self._extract_keywords(task_description)
-        seed_nodes = self.experience_graph.find_by_content(keywords)
-        seed_ids = [n.id for n in seed_nodes[:5]]
+        if self._embedding_provider:
+            query_emb = self._embedding_provider.embed(task_description)
+            seed_results = self.experience_graph.find_by_embedding(query_emb, top_k=5)
+            seed_ids = [n.id for n, _ in seed_results]
+        else:
+            keywords = self._extract_keywords(task_description)
+            seed_nodes = self.experience_graph.find_by_content(keywords)
+            seed_ids = [n.id for n in seed_nodes[:5]]
 
         activated = []
         experience_context = "没有找到相关历史经验。"
@@ -164,12 +178,37 @@ class PersonaLayer:
         记录一次完整的任务经历到经验图谱中。
         这是Agent"积累经验"的核心机制。
         """
+        # 计算任务节点的 embedding（如果配置了 embedding provider）
+        task_embedding = []
+        if self._embedding_provider:
+            task_embedding = self._embedding_provider.embed(task_description)
+
         # 创建任务节点
         task_node = self.experience_graph.add_node(
             NodeType.TASK, task_description,
+            embedding=task_embedding,
             metadata={"category": task_category.value,
                       "actions": actions_taken,
                       "skills": skills_used})
+
+        # 如果配置了提取器，提取概念节点
+        if self._extractor:
+            extraction = self._extractor.extract(task_description)
+            for concept_text in extraction.concepts:
+                concept_emb = []
+                if self._embedding_provider:
+                    concept_emb = self._embedding_provider.embed(concept_text)
+
+                existing = self._find_existing_concept(concept_text, concept_emb)
+                if existing:
+                    self.experience_graph.add_edge(
+                        task_node.id, existing.id, EdgeType.COMPOSED_OF)
+                    existing.activation_count += 1
+                else:
+                    concept_node = self.experience_graph.add_node(
+                        NodeType.CONCEPT, concept_text, embedding=concept_emb)
+                    self.experience_graph.add_edge(
+                        task_node.id, concept_node.id, EdgeType.COMPOSED_OF)
 
         # 创建结果节点并连接
         outcome_node = self.experience_graph.add_node(
@@ -242,6 +281,26 @@ class PersonaLayer:
                 self.skills[skill]["usage_count"] += 1
                 if reward > 0.5:
                     self.skills[skill]["success_count"] += 1
+
+    def _find_existing_concept(self, concept_text: str, concept_embedding: list):
+        """查找是否已存在相似的 CONCEPT 节点（用于去重）。"""
+        if concept_embedding and self._embedding_provider:
+            from anima.embedding import cosine_similarity
+            best_match = None
+            best_sim = 0.7  # 相似度阈值，超过则视为同一概念
+            for node in self.experience_graph.find_by_type(NodeType.CONCEPT):
+                if node.embedding:
+                    sim = cosine_similarity(concept_embedding, node.embedding)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_match = node
+            return best_match
+
+        # 无 embedding 时退回精确文本匹配
+        for node in self.experience_graph.find_by_type(NodeType.CONCEPT):
+            if node.content == concept_text:
+                return node
+        return None
 
     def _discover_connections(self, new_node):
         """发现新节点与已有节点之间的潜在关联"""

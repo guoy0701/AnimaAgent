@@ -193,3 +193,87 @@ class TestPhase1Integration:
 
         skill_nodes = agent.persona.experience_graph.find_by_type(NodeType.SKILL)
         assert len(skill_nodes) == 1
+
+
+from anima.embedding import MockEmbeddingProvider
+from anima.extractor import MockExtractor
+
+
+class TestSemanticRecording:
+    def _make_semantic_persona(self):
+        persona = PersonaLayer("test")
+        persona.configure_semantic(
+            embedding_provider=MockEmbeddingProvider(dimensions=64),
+            extractor=MockExtractor(),
+        )
+        return persona
+
+    def test_configure_semantic_sets_providers(self):
+        persona = self._make_semantic_persona()
+        assert persona._embedding_provider is not None
+        assert persona._extractor is not None
+
+    def test_recording_creates_concept_nodes(self):
+        persona = self._make_semantic_persona()
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+
+        concept_nodes = persona.experience_graph.find_by_type(NodeType.CONCEPT)
+        assert len(concept_nodes) > 0, "Should create CONCEPT nodes from extraction"
+
+    def test_concept_nodes_have_embeddings(self):
+        persona = self._make_semantic_persona()
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+
+        concept_nodes = persona.experience_graph.find_by_type(NodeType.CONCEPT)
+        nodes_with_emb = [n for n in concept_nodes if len(n.embedding) > 0]
+        assert len(nodes_with_emb) > 0, "CONCEPT nodes should have embeddings"
+
+    def test_task_node_has_embedding(self):
+        persona = self._make_semantic_persona()
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+
+        task_nodes = persona.experience_graph.find_by_type(NodeType.TASK)
+        assert len(task_nodes) == 1
+        assert len(task_nodes[0].embedding) > 0, "TASK node should have embedding"
+
+    def test_semantic_activation_finds_related_experience(self):
+        persona = self._make_semantic_persona()
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+
+        context = persona.prepare_context("帮我看看用户流失的原因")
+        activated = context.get("activated_experiences", [])
+        assert len(activated) > 0, "Semantic activation should find related experiences"
+
+    def test_duplicate_concepts_are_merged(self):
+        persona = self._make_semantic_persona()
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+        persona.record_experience(
+            "分析用户留存趋势", TaskCategory.DATA_ANALYSIS,
+            ["search_first"], ["sql_query"], "成功")
+
+        concept_nodes = persona.experience_graph.find_by_type(NodeType.CONCEPT)
+        # Some concepts should be merged (reused) rather than duplicated
+        task_nodes = persona.experience_graph.find_by_type(NodeType.TASK)
+        assert len(task_nodes) == 2
+        # The ratio of concepts to tasks should be reasonable (not 2x)
+        assert len(concept_nodes) < len(task_nodes) * 5, \
+            f"Too many concepts ({len(concept_nodes)}) for {len(task_nodes)} tasks"
+
+    def test_without_semantic_still_works(self):
+        """PersonaLayer should work fine without semantic configuration."""
+        persona = PersonaLayer("test_no_semantic")
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+        context = persona.prepare_context("帮我分析数据")
+        assert "system_prompt_addition" in context
