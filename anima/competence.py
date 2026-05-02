@@ -71,7 +71,8 @@ class CompetenceEmbedding:
             self.style_tendencies.setdefault(dim, 0.0)
 
     def update_from_graph_and_strategy(self, graph_stats: dict,
-                                        strategy_summary: dict):
+                                        strategy_summary: dict,
+                                        topology_stats: dict = None):
         """
         从经验图谱和策略网络的状态中更新能力画像。
         这是能力向量"自动演化"的核心机制。
@@ -105,6 +106,20 @@ class CompetenceEmbedding:
                 )
 
         self.total_experience = total_attempts
+
+        # 融合拓扑信号（30% 权重）
+        if topology_stats:
+            for domain, topo in topology_stats.items():
+                if domain in category_to_competence:
+                    dim = category_to_competence[domain]
+                    density_score = min(1.0, topo.get("edge_density", 0) / 3.0)
+                    concept_score = min(1.0, topo.get("concept_count", 0) / 20.0)
+                    current = self.competence_scores.get(dim, 0)
+                    self.competence_scores[dim] = (
+                        0.7 * current + 0.3 * (0.5 * density_score + 0.5 * concept_score))
+
+            total_concepts = sum(t.get("concept_count", 0) for t in topology_stats.values())
+            self.competence_scores["domain_depth"] = min(1.0, total_concepts / 50)
 
         # 从策略偏好推断风格倾向
         all_action_prefs = {}
@@ -167,7 +182,7 @@ class CompetenceEmbedding:
         """画像的整体置信度——经验越多越可信"""
         return min(1.0, self.total_experience / 50)
 
-    def generate_identity_prompt(self) -> str:
+    def generate_identity_prompt(self, experience_highlights: list = None) -> str:
         """
         将能力画像转化为文本提示，注入到LLM的system prompt中。
         这是能力向量与大模型之间的接口。
@@ -216,6 +231,12 @@ class CompetenceEmbedding:
 
         if style_desc:
             lines.append(f"\n**做事风格：** {', '.join(style_desc)}")
+
+        # 关键经验亮点（具体任务描述，非抽象百分比）
+        if experience_highlights:
+            lines.append("\n**关键经验：**")
+            for highlight in experience_highlights[:5]:
+                lines.append(f"  - {highlight}")
 
         lines.append(f"\n画像置信度：{confidence:.0%}"
                      f"（基于{self.total_experience}次交互）")

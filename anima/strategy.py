@@ -70,6 +70,8 @@ class StrategyProfile:
     category: TaskCategory
     # 每种动作类型的偏好分数（通过反馈累积）
     action_preferences: dict[str, float] = field(default_factory=dict)
+    # 每种动作类型的尝试次数（用于探索时优先选最少尝试的）
+    action_attempt_counts: dict[str, int] = field(default_factory=dict)
     # Skill的偏好分数
     skill_preferences: dict[str, float] = field(default_factory=dict)
     # 策略序列模式的偏好（记录成功的动作组合）
@@ -146,15 +148,12 @@ class StrategyNetwork:
         """探索模式：尝试不太常用的策略组合"""
         profile = self.profiles[category.value]
 
-        # 找出使用次数较少的动作类型
+        # 找出尝试次数较少的动作类型（按 attempt_counts 排序，而非偏好分数）
         all_actions = list(ActionType)
-        action_counts = {}
-        for action in all_actions:
-            action_counts[action] = profile.action_preferences.get(
-                action.value, 0)
 
-        # 倾向于选择探索较少的动作
-        actions = sorted(all_actions, key=lambda a: action_counts[a])
+        # 倾向于选择尝试次数最少的动作
+        actions = sorted(all_actions,
+                         key=lambda a: profile.action_attempt_counts.get(a.value, 0))
         selected_actions = actions[:2]  # 选两个最少尝试的
 
         # 随机选择Skill组合
@@ -169,40 +168,79 @@ class StrategyNetwork:
             "reasoning": "探索模式：尝试不太常用的策略以发现更好的方法"
         }
 
+    def _find_similar_strategies(self, context: dict,
+                                 top_k: int = 3) -> list:
+        """Find past strategy records with similar task context (by cosine similarity on task_embedding)."""
+        task_emb = context.get("task_embedding")
+        if not task_emb or not self.history:
+            return []
+
+        from anima.embedding import cosine_similarity
+
+        scored = []
+        for record in self.history:
+            record_emb = record.context_features.get("task_embedding")
+            if record_emb:
+                sim = cosine_similarity(task_emb, record_emb)
+                if sim > 0.5:
+                    scored.append((record, sim))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
+
     def _exploit(self, category: TaskCategory,
                  available_skills: list[str], context: dict) -> dict:
-        """利用模式：使用历史上效果最好的策略"""
+        """利用模式：使用历史上效果最好的策略，优先参考相似历史任务的 embedding"""
         profile = self.profiles[category.value]
+        similar_strategies = self._find_similar_strategies(context)
 
-        # 按偏好分数排序选择动作
-        sorted_actions = sorted(
-            profile.action_preferences.items(),
-            key=lambda x: x[1], reverse=True
-        )
+        if similar_strategies:
+            action_scores = {}
+            skill_scores = {}
+            for record, similarity in similar_strategies:
+                weight = max(0, record.reward) * similarity
+                for action in record.actions_taken:
+                    action_scores[action.value] = action_scores.get(action.value, 0) + weight
+                for skill in record.skills_used:
+                    skill_scores[skill] = skill_scores.get(skill, 0) + weight
 
-        if sorted_actions:
-            selected_actions = [a for a, _ in sorted_actions[:3] if _ > 0]
+            # Blend with profile preferences
+            for action, score in profile.action_preferences.items():
+                action_scores[action] = action_scores.get(action, 0) + score
+
+            sorted_actions = sorted(action_scores.items(), key=lambda x: x[1], reverse=True)
+            selected_actions = [a for a, s in sorted_actions[:3] if s > 0]
+
+            sorted_skills = sorted(skill_scores.items(), key=lambda x: x[1], reverse=True)
+            selected_skills = [s for s, sc in sorted_skills if s in available_skills and sc > 0][:3]
+
+            reasoning = "利用模式：基于相似历史任务选择策略"
+            best = similar_strategies[0][0]
+            reasoning += f"\n参考相似任务（reward={best.reward:.1f}）的成功策略"
         else:
-            selected_actions = [ActionType.DIRECT_EXECUTION.value]
+            # Fallback: preference-only logic (no embeddings available)
+            sorted_actions = sorted(
+                profile.action_preferences.items(),
+                key=lambda x: x[1], reverse=True
+            )
+            selected_actions = [a for a, _ in sorted_actions[:3] if _ > 0]
 
-        # 选择历史效果好的Skill
-        sorted_skills = sorted(
-            profile.skill_preferences.items(),
-            key=lambda x: x[1], reverse=True
-        )
-        selected_skills = [s for s, score in sorted_skills
-                           if s in available_skills and score > 0][:3]
+            sorted_skills = sorted(
+                profile.skill_preferences.items(),
+                key=lambda x: x[1], reverse=True
+            )
+            selected_skills = [s for s, score in sorted_skills
+                               if s in available_skills and score > 0][:3]
+
+            reasoning = "利用模式：基于历史经验选择最佳策略"
+            if profile.sequence_patterns:
+                best_pattern = max(profile.sequence_patterns,
+                                   key=lambda p: p.get("score", 0))
+                if best_pattern.get("score", 0) > 0.5:
+                    reasoning += f"\n参考成功模式：{best_pattern.get('description', '')}"
 
         if not selected_skills and available_skills:
             selected_skills = available_skills[:1]
-
-        # 查找成功的序列模式
-        reasoning = "利用模式：基于历史经验选择最佳策略"
-        if profile.sequence_patterns:
-            best_pattern = max(profile.sequence_patterns,
-                               key=lambda p: p.get("score", 0))
-            if best_pattern.get("score", 0) > 0.5:
-                reasoning += f"\n参考成功模式：{best_pattern.get('description', '')}"
 
         return {
             "actions": selected_actions if selected_actions
@@ -235,17 +273,19 @@ class StrategyNetwork:
         if reward > 0.5:
             profile.success_count += 1
 
-        learning_rate = 0.2
+        # EMA alpha：防止分数无界增长（代替原来的累加方式）
+        ema_alpha = 0.2
 
-        # 更新动作偏好
+        # 更新动作偏好（EMA）并记录尝试次数
         for action in actions_taken:
             current = profile.action_preferences.get(action, 0.0)
-            profile.action_preferences[action] = current + learning_rate * reward
+            profile.action_preferences[action] = ema_alpha * reward + (1 - ema_alpha) * current
+            profile.action_attempt_counts[action] = profile.action_attempt_counts.get(action, 0) + 1
 
-        # 更新Skill偏好
+        # 更新Skill偏好（EMA）
         for skill in skills_used:
             current = profile.skill_preferences.get(skill, 0.0)
-            profile.skill_preferences[skill] = current + learning_rate * reward
+            profile.skill_preferences[skill] = ema_alpha * reward + (1 - ema_alpha) * current
 
         # 记录策略序列模式
         if reward > 0.5:
@@ -341,6 +381,7 @@ class StrategyNetwork:
                 cat: {
                     "category": p.category.value,
                     "action_preferences": p.action_preferences,
+                    "action_attempt_counts": p.action_attempt_counts,
                     "skill_preferences": p.skill_preferences,
                     "sequence_patterns": p.sequence_patterns,
                     "total_attempts": p.total_attempts,
@@ -367,8 +408,25 @@ class StrategyNetwork:
             if cat in net.profiles:
                 profile = net.profiles[cat]
                 profile.action_preferences = pd.get("action_preferences", {})
+                profile.action_attempt_counts = pd.get("action_attempt_counts", {})
                 profile.skill_preferences = pd.get("skill_preferences", {})
                 profile.sequence_patterns = pd.get("sequence_patterns", [])
                 profile.total_attempts = pd.get("total_attempts", 0)
                 profile.success_count = pd.get("success_count", 0)
+
+        # 恢复历史记录
+        for record_data in data.get("history", []):
+            try:
+                record = StrategyRecord(
+                    task_category=TaskCategory(record_data["task_category"]),
+                    context_features=record_data.get("context_features", {}),
+                    actions_taken=[ActionType(a) for a in record_data.get("actions_taken", [])],
+                    skills_used=record_data.get("skills_used", []),
+                    reward=record_data.get("reward", 0),
+                    timestamp=record_data.get("timestamp", 0),
+                )
+                net.history.append(record)
+            except (ValueError, KeyError):
+                continue
+
         return net

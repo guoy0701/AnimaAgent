@@ -54,6 +54,11 @@ class AnimaAgent:
         self.persona.register_skill(name, description, categories)
         print(f"[Anima] 注册Skill: {name}")
 
+    def configure_semantic(self, embedding_provider=None, extractor=None):
+        """启用语义层——让Agent具备真正的语义理解能力。"""
+        self.persona.configure_semantic(embedding_provider, extractor)
+        print(f"[Anima] 已启用语义层")
+
     def think(self, task: str) -> dict:
         """
         Agent的"思考"过程——面对一个新任务时的内部处理。
@@ -122,6 +127,7 @@ class AnimaAgent:
                  solutions: list[str] = None):
         """
         主人给予反馈——这是Agent成长的核心驱动力。
+        此方法会自动记录经验并触发学习，调用方不需要手动调用record_experience。
 
         reward: -1.0 到 1.0
         """
@@ -142,9 +148,15 @@ class AnimaAgent:
             self._current_task, task_category,
             actions, skills, outcome, problems, solutions)
 
-        # 从反馈中学习
+        # 从反馈中学习（附带 task_embedding，用于策略相似检索）
+        task_embedding = None
+        if (hasattr(self.persona, '_embedding_provider')
+                and self.persona._embedding_provider
+                and self._current_task):
+            task_embedding = self.persona._embedding_provider.embed(
+                self._current_task)
         self.persona.learn_from_feedback(
-            task_category, actions, skills, reward)
+            task_category, actions, skills, reward, task_embedding)
 
         # 自动保存
         self._auto_save()
@@ -217,8 +229,9 @@ class AnimaAgent:
         """
         导入Agent的灵魂。
 
-        注意：导入的灵魂在新主人手下可能表现不同，
-        因为它的经验结构是与原主人共适应的。
+        注意：导入后需要重新调用configure_semantic()来启用语义层，
+        因为embedding_provider和extractor是运行时对象，不参与序列化。
+        导入的灵魂在新主人手下可能表现不同，因为它的经验结构是与原主人共适应的。
         """
         persona = PersonaLayer.load(filepath)
         agent = cls.__new__(cls)

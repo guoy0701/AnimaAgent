@@ -31,6 +31,8 @@ import json
 import time
 from pathlib import Path
 
+import jieba
+
 from .experience_graph import ExperienceGraph, NodeType, EdgeType
 from .strategy import StrategyNetwork, TaskCategory, ActionType
 from .competence import CompetenceEmbedding
@@ -62,9 +64,24 @@ class PersonaLayer:
         # 交互计数
         self.interaction_count = 0
 
+        # 语义层（可选）
+        self._embedding_provider = None
+        self._extractor = None
+
+    def configure_semantic(self, embedding_provider=None, extractor=None):
+        """配置语义层：embedding provider 和概念提取器（均可选）。"""
+        self._embedding_provider = embedding_provider
+        self._extractor = extractor
+
     def register_skill(self, skill_name: str, description: str,
                        categories: list[str] = None):
         """注册一个Skill"""
+        if skill_name in self.skills:
+            # 更新元数据，但不创建重复节点
+            self.skills[skill_name]["description"] = description
+            self.skills[skill_name]["categories"] = categories or []
+            return
+
         self.skills[skill_name] = {
             "name": skill_name,
             "description": description,
@@ -87,28 +104,39 @@ class PersonaLayer:
         self.interaction_count += 1
 
         # 1. 在经验图谱中搜索相关经验
-        keywords = self._extract_keywords(task_description)
-        seed_nodes = self.experience_graph.find_by_content(keywords)
-        seed_ids = [n.id for n in seed_nodes[:5]]
+        if self._embedding_provider:
+            query_emb = self._embedding_provider.embed(task_description)
+            seed_results = self.experience_graph.find_by_embedding(query_emb, top_k=5)
+            seed_ids = [n.id for n, _ in seed_results]
+        else:
+            keywords = self._extract_keywords(task_description)
+            seed_nodes = self.experience_graph.find_by_content(keywords)
+            seed_ids = [n.id for n in seed_nodes[:5]]
 
         activated = []
         experience_context = "没有找到相关历史经验。"
         if seed_ids:
             activated = self.experience_graph.spreading_activation(seed_ids)
-            experience_context = self.experience_graph.extract_subgraph(
-                activated, max_nodes=8)
+            from anima.narrator import narrate_subgraph
+            experience_context = narrate_subgraph(
+                self.experience_graph, activated, max_stories=3)
 
         # 2. 从策略网络获取策略建议
         if not task_category:
             task_category = self._infer_category(task_description)
         available_skills = list(self.skills.keys())
+        strategy_context = {"task": task_description}
+        if self._embedding_provider:
+            # reuse query_emb already computed above for seed selection
+            strategy_context["task_embedding"] = query_emb
         strategy = self.strategy_network.decide_strategy(
-            task_category, {"task": task_description}, available_skills)
+            task_category, strategy_context, available_skills)
         strategy_context = self.strategy_network.generate_strategy_prompt(
             task_category)
 
-        # 3. 获取能力画像
-        identity_context = self.competence.generate_identity_prompt()
+        # 3. 获取能力画像（含经验亮点）
+        highlights = self._get_experience_highlights()
+        identity_context = self.competence.generate_identity_prompt(highlights)
 
         # 4. 整合成完整的个性化上下文
         full_context = self._build_system_prompt(
@@ -156,12 +184,37 @@ class PersonaLayer:
         记录一次完整的任务经历到经验图谱中。
         这是Agent"积累经验"的核心机制。
         """
+        # 计算任务节点的 embedding（如果配置了 embedding provider）
+        task_embedding = []
+        if self._embedding_provider:
+            task_embedding = self._embedding_provider.embed(task_description)
+
         # 创建任务节点
         task_node = self.experience_graph.add_node(
             NodeType.TASK, task_description,
+            embedding=task_embedding,
             metadata={"category": task_category.value,
                       "actions": actions_taken,
                       "skills": skills_used})
+
+        # 如果配置了提取器，提取概念节点
+        if self._extractor:
+            extraction = self._extractor.extract(task_description)
+            for concept_text in extraction.concepts:
+                concept_emb = []
+                if self._embedding_provider:
+                    concept_emb = self._embedding_provider.embed(concept_text)
+
+                existing = self._find_existing_concept(concept_text, concept_emb)
+                if existing:
+                    self.experience_graph.add_edge(
+                        task_node.id, existing.id, EdgeType.COMPOSED_OF)
+                    existing.activation_count += 1
+                else:
+                    concept_node = self.experience_graph.add_node(
+                        NodeType.CONCEPT, concept_text, embedding=concept_emb)
+                    self.experience_graph.add_edge(
+                        task_node.id, concept_node.id, EdgeType.COMPOSED_OF)
 
         # 创建结果节点并连接
         outcome_node = self.experience_graph.add_node(
@@ -177,20 +230,28 @@ class PersonaLayer:
                 self.experience_graph.add_edge(
                     task_node.id, sn.id, EdgeType.REQUIRES)
 
-        # 记录问题和解决方案
+        # 记录问题和解决方案（按索引 1:1 配对，避免笛卡尔积）
         if problems_encountered:
-            for prob in problems_encountered:
+            for i, prob in enumerate(problems_encountered):
                 prob_node = self.experience_graph.add_node(
                     NodeType.PROBLEM, prob)
                 self.experience_graph.add_edge(
                     task_node.id, prob_node.id, EdgeType.CAUSAL)
 
-                if solutions_found:
-                    for sol in solutions_found:
-                        sol_node = self.experience_graph.add_node(
-                            NodeType.SOLUTION, sol)
-                        self.experience_graph.add_edge(
-                            prob_node.id, sol_node.id, EdgeType.SOLVED_BY)
+                # 按索引配对（1:1），而非每个方案连接所有问题
+                if solutions_found and i < len(solutions_found):
+                    sol_node = self.experience_graph.add_node(
+                        NodeType.SOLUTION, solutions_found[i])
+                    self.experience_graph.add_edge(
+                        prob_node.id, sol_node.id, EdgeType.SOLVED_BY)
+
+        # 处理多出的解决方案（没有对应问题的部分）
+        if solutions_found and len(solutions_found) > len(problems_encountered or []):
+            for sol in solutions_found[len(problems_encountered or []):]:
+                sol_node = self.experience_graph.add_node(
+                    NodeType.SOLUTION, sol)
+                self.experience_graph.add_edge(
+                    task_node.id, sol_node.id, EdgeType.CAUSAL)
 
         # 尝试发现与之前任务的关联
         self._discover_connections(task_node)
@@ -198,13 +259,17 @@ class PersonaLayer:
     def learn_from_feedback(self, task_category: TaskCategory,
                             actions_taken: list[str],
                             skills_used: list[str],
-                            reward: float):
+                            reward: float,
+                            task_embedding: list = None):
         """
         从主人的反馈中学习，更新所有三个组件。
         """
-        # 1. 更新策略网络
+        # 1. 更新策略网络（附带 task_embedding 让策略记录可被相似检索）
+        context = {}
+        if task_embedding:
+            context["task_embedding"] = task_embedding
         self.strategy_network.learn_from_feedback(
-            task_category, actions_taken, skills_used, reward)
+            task_category, actions_taken, skills_used, reward, context)
 
         # 2. 对经验图谱做赫布学习（强化共同激活的节点间的连接）
         keywords = actions_taken + skills_used
@@ -217,8 +282,9 @@ class PersonaLayer:
         # 3. 更新能力向量
         graph_stats = self.experience_graph.get_stats()
         strategy_summary = self.strategy_network.get_profile_summary()
+        topology_stats = self.experience_graph.get_topology_stats()
         self.competence.update_from_graph_and_strategy(
-            graph_stats, strategy_summary)
+            graph_stats, strategy_summary, topology_stats)
 
         # 4. 更新Skill统计
         for skill in skills_used:
@@ -227,40 +293,82 @@ class PersonaLayer:
                 if reward > 0.5:
                     self.skills[skill]["success_count"] += 1
 
+    def _find_existing_concept(self, concept_text: str, concept_embedding: list):
+        """查找是否已存在相似的 CONCEPT 节点（用于去重）。"""
+        if concept_embedding and self._embedding_provider:
+            from anima.embedding import cosine_similarity
+            best_match = None
+            best_sim = 0.7  # 相似度阈值，超过则视为同一概念
+            for node in self.experience_graph.find_by_type(NodeType.CONCEPT):
+                if node.embedding:
+                    sim = cosine_similarity(concept_embedding, node.embedding)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_match = node
+            return best_match
+
+        # 无 embedding 时退回精确文本匹配
+        for node in self.experience_graph.find_by_type(NodeType.CONCEPT):
+            if node.content == concept_text:
+                return node
+        return None
+
     def _discover_connections(self, new_node):
         """发现新节点与已有节点之间的潜在关联"""
-        keywords = new_node.content.lower().split()
+        new_words = set(jieba.lcut(new_node.content.lower()))
+        new_words = {w for w in new_words if len(w) > 1}
+        if not new_words:
+            return
+
         for existing_node in self.experience_graph.nodes.values():
             if existing_node.id == new_node.id:
                 continue
-            if existing_node.node_type == new_node.node_type:
-                # 同类型节点之间查找相似性
-                existing_words = set(existing_node.content.lower().split())
-                new_words = set(keywords)
-                overlap = len(existing_words & new_words)
-                total = len(existing_words | new_words)
-                if total > 0 and overlap / total > 0.5:
-                    self.experience_graph.add_edge(
-                        new_node.id, existing_node.id,
-                        EdgeType.SIMILAR, weight=overlap / total)
+            if existing_node.node_type != new_node.node_type:
+                continue
+
+            existing_words = set(jieba.lcut(existing_node.content.lower()))
+            existing_words = {w for w in existing_words if len(w) > 1}
+            if not existing_words:
+                continue
+
+            overlap = len(new_words & existing_words)
+            total = len(new_words | existing_words)
+            if total > 0 and overlap / total > 0.3:
+                self.experience_graph.add_edge(
+                    new_node.id, existing_node.id,
+                    EdgeType.SIMILAR, weight=overlap / total)
 
     def _extract_keywords(self, text: str) -> list[str]:
-        """从文本中提取关键词（简单实现）"""
-        stop_words = {"的", "了", "在", "是", "我", "有", "和", "就",
-                      "不", "人", "都", "一", "一个", "上", "也", "很",
-                      "到", "说", "要", "去", "你", "会", "着", "没有",
-                      "看", "好", "自己", "这", "他", "她", "它", "们",
-                      "the", "a", "an", "is", "are", "was", "were",
-                      "in", "on", "at", "to", "for", "of", "with",
-                      "and", "or", "but", "not", "this", "that",
-                      "i", "me", "my", "you", "your", "he", "she",
-                      "it", "we", "they", "can", "will", "do", "does",
-                      "help", "please", "want", "need", "make",
-                      "帮", "请", "想", "能", "把", "让", "给", "用",
-                      "做", "写", "看看", "一下"}
-        words = text.lower().replace("，", " ").replace("。", " ").replace(
-            "、", " ").replace("？", " ").replace("！", " ").split()
-        return [w for w in words if w not in stop_words and len(w) > 1]
+        """从文本中提取关键词（使用 jieba 分词，支持中文）"""
+        stop_words = {
+            "的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
+            "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去",
+            "你", "会", "着", "没有", "看", "好", "自己", "这", "他", "她",
+            "它", "们", "可以", "什么", "怎么", "那", "吗", "吧", "啊",
+            "帮", "请", "想", "能", "把", "让", "给", "用", "做", "写",
+            "看看", "一下", "下", "个", "来", "过", "被", "比", "从",
+            "the", "a", "an", "is", "are", "was", "were", "in", "on",
+            "at", "to", "for", "of", "with", "and", "or", "but", "not",
+            "this", "that", "i", "me", "my", "you", "your", "he", "she",
+            "it", "we", "they", "can", "will", "do", "does",
+            "help", "please", "want", "need", "make",
+        }
+        words = jieba.lcut(text)
+        return [w.strip() for w in words
+                if w.strip() and w.strip() not in stop_words and len(w.strip()) > 1]
+
+    def _get_experience_highlights(self) -> list:
+        """从成功的任务节点中提取经验亮点，用于身份提示词。"""
+        highlights = []
+        task_nodes = self.experience_graph.find_by_type(NodeType.TASK)
+        for task in task_nodes[-10:]:
+            for neighbor_id, edge in self.experience_graph._forward.get(task.id, []):
+                neighbor = self.experience_graph.nodes.get(neighbor_id)
+                if neighbor and neighbor.node_type == NodeType.FEEDBACK:
+                    if "成功" in neighbor.content:
+                        highlights.append(task.content)
+                        break
+        return highlights[-5:]
 
     def _infer_category(self, task: str) -> TaskCategory:
         """从任务描述推断任务类别"""
@@ -306,8 +414,9 @@ class PersonaLayer:
         # 更新能力画像
         graph_stats = self.experience_graph.get_stats()
         strategy_summary = self.strategy_network.get_profile_summary()
+        topology_stats = self.experience_graph.get_topology_stats()
         self.competence.update_from_graph_and_strategy(
-            graph_stats, strategy_summary)
+            graph_stats, strategy_summary, topology_stats)
 
     def get_full_status(self) -> dict:
         """获取Agent的完整状态概览"""

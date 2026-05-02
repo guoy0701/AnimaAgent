@@ -9,6 +9,8 @@ Anima - 有灵魂的AI Agent框架
 - CompetenceEmbedding: 能力向量，Agent的身份画像
 - PersonaLayer: 个性层，整合以上三者
 - AnimaAgent: 主Agent类，用户交互入口
+- EmbeddingProvider: 语义向量接口
+- ExperienceExtractor: 经验结构化提取接口
 """
 
 from .experience_graph import ExperienceGraph, NodeType, EdgeType
@@ -16,12 +18,28 @@ from .strategy import StrategyNetwork, TaskCategory, ActionType
 from .competence import CompetenceEmbedding
 from .persona import PersonaLayer
 from .agent import AnimaAgent
+from .embedding import EmbeddingProvider, MockEmbeddingProvider, cosine_similarity
+from .extractor import ExperienceExtractor, MockExtractor, ExtractionResult
+from .narrator import narrate_subgraph
 
-__version__ = "0.1.0"
+try:
+    from .embedding import AnthropicEmbeddingProvider
+except ImportError:
+    pass
+
+try:
+    from .extractor import AnthropicExtractor
+except ImportError:
+    pass
+
+__version__ = "0.2.0"
 __all__ = [
     "ExperienceGraph", "NodeType", "EdgeType",
     "StrategyNetwork", "TaskCategory", "ActionType",
     "CompetenceEmbedding",
     "PersonaLayer",
     "AnimaAgent",
+    "EmbeddingProvider", "MockEmbeddingProvider", "cosine_similarity",
+    "ExperienceExtractor", "MockExtractor", "ExtractionResult",
+    "narrate_subgraph",
 ]
