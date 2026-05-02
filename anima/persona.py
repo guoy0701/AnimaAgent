@@ -124,8 +124,12 @@ class PersonaLayer:
         if not task_category:
             task_category = self._infer_category(task_description)
         available_skills = list(self.skills.keys())
+        strategy_context = {"task": task_description}
+        if self._embedding_provider:
+            # reuse query_emb already computed above for seed selection
+            strategy_context["task_embedding"] = query_emb
         strategy = self.strategy_network.decide_strategy(
-            task_category, {"task": task_description}, available_skills)
+            task_category, strategy_context, available_skills)
         strategy_context = self.strategy_network.generate_strategy_prompt(
             task_category)
 
@@ -253,13 +257,17 @@ class PersonaLayer:
     def learn_from_feedback(self, task_category: TaskCategory,
                             actions_taken: list[str],
                             skills_used: list[str],
-                            reward: float):
+                            reward: float,
+                            task_embedding: list = None):
         """
         从主人的反馈中学习，更新所有三个组件。
         """
-        # 1. 更新策略网络
+        # 1. 更新策略网络（附带 task_embedding 让策略记录可被相似检索）
+        context = {}
+        if task_embedding:
+            context["task_embedding"] = task_embedding
         self.strategy_network.learn_from_feedback(
-            task_category, actions_taken, skills_used, reward)
+            task_category, actions_taken, skills_used, reward, context)
 
         # 2. 对经验图谱做赫布学习（强化共同激活的节点间的连接）
         keywords = actions_taken + skills_used

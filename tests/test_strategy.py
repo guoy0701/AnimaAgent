@@ -79,3 +79,43 @@ class TestHistorySerialization:
 
         profile = net2.profiles["data_analysis"]
         assert profile.action_attempt_counts.get("decompose_first", 0) == 1
+
+
+class TestGraphInformedStrategy:
+    def test_exploit_uses_similar_task_history(self):
+        """When exploiting, strategy should consider what worked for similar past tasks."""
+        net = StrategyNetwork(exploration_rate=0.0)  # always exploit
+
+        net.learn_from_feedback(
+            TaskCategory.DATA_ANALYSIS,
+            ["decompose_first", "use_skill"], ["sql_query"],
+            reward=0.9,
+            context={"task_embedding": [0.8, 0.3, 0.1]})
+
+        net.learn_from_feedback(
+            TaskCategory.DATA_ANALYSIS,
+            ["direct_execution"], ["python_coding"],
+            reward=0.2,
+            context={"task_embedding": [0.7, 0.3, 0.2]})
+
+        strategy = net.decide_strategy(
+            TaskCategory.DATA_ANALYSIS,
+            {"task_embedding": [0.8, 0.3, 0.1]},
+            ["sql_query", "python_coding"])
+
+        assert "decompose_first" in strategy["actions"], \
+            f"Should prefer decompose_first from similar high-reward task, got {strategy['actions']}"
+
+    def test_exploit_without_embeddings_falls_back(self):
+        """Without embeddings, should fall back to preference-only logic."""
+        net = StrategyNetwork(exploration_rate=0.0)
+
+        net.learn_from_feedback(
+            TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], reward=0.9)
+
+        strategy = net.decide_strategy(
+            TaskCategory.DATA_ANALYSIS, {}, ["sql_query"])
+
+        # Should still work using preferences only
+        assert len(strategy["actions"]) > 0

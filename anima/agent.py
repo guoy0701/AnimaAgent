@@ -143,9 +143,15 @@ class AnimaAgent:
             self._current_task, task_category,
             actions, skills, outcome, problems, solutions)
 
-        # 从反馈中学习
+        # 从反馈中学习（附带 task_embedding，用于策略相似检索）
+        task_embedding = None
+        if (hasattr(self.persona, '_embedding_provider')
+                and self.persona._embedding_provider
+                and self._current_task):
+            task_embedding = self.persona._embedding_provider.embed(
+                self._current_task)
         self.persona.learn_from_feedback(
-            task_category, actions, skills, reward)
+            task_category, actions, skills, reward, task_embedding)
 
         # 自动保存
         self._auto_save()

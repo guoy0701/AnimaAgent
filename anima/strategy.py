@@ -168,40 +168,79 @@ class StrategyNetwork:
             "reasoning": "探索模式：尝试不太常用的策略以发现更好的方法"
         }
 
+    def _find_similar_strategies(self, context: dict,
+                                 top_k: int = 3) -> list:
+        """Find past strategy records with similar task context (by cosine similarity on task_embedding)."""
+        task_emb = context.get("task_embedding")
+        if not task_emb or not self.history:
+            return []
+
+        from anima.embedding import cosine_similarity
+
+        scored = []
+        for record in self.history:
+            record_emb = record.context_features.get("task_embedding")
+            if record_emb:
+                sim = cosine_similarity(task_emb, record_emb)
+                if sim > 0.5:
+                    scored.append((record, sim))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
+
     def _exploit(self, category: TaskCategory,
                  available_skills: list[str], context: dict) -> dict:
-        """利用模式：使用历史上效果最好的策略"""
+        """利用模式：使用历史上效果最好的策略，优先参考相似历史任务的 embedding"""
         profile = self.profiles[category.value]
+        similar_strategies = self._find_similar_strategies(context)
 
-        # 按偏好分数排序选择动作
-        sorted_actions = sorted(
-            profile.action_preferences.items(),
-            key=lambda x: x[1], reverse=True
-        )
+        if similar_strategies:
+            action_scores = {}
+            skill_scores = {}
+            for record, similarity in similar_strategies:
+                weight = max(0, record.reward) * similarity
+                for action in record.actions_taken:
+                    action_scores[action.value] = action_scores.get(action.value, 0) + weight
+                for skill in record.skills_used:
+                    skill_scores[skill] = skill_scores.get(skill, 0) + weight
 
-        if sorted_actions:
-            selected_actions = [a for a, _ in sorted_actions[:3] if _ > 0]
+            # Blend with profile preferences
+            for action, score in profile.action_preferences.items():
+                action_scores[action] = action_scores.get(action, 0) + score
+
+            sorted_actions = sorted(action_scores.items(), key=lambda x: x[1], reverse=True)
+            selected_actions = [a for a, s in sorted_actions[:3] if s > 0]
+
+            sorted_skills = sorted(skill_scores.items(), key=lambda x: x[1], reverse=True)
+            selected_skills = [s for s, sc in sorted_skills if s in available_skills and sc > 0][:3]
+
+            reasoning = "利用模式：基于相似历史任务选择策略"
+            best = similar_strategies[0][0]
+            reasoning += f"\n参考相似任务（reward={best.reward:.1f}）的成功策略"
         else:
-            selected_actions = [ActionType.DIRECT_EXECUTION.value]
+            # Fallback: preference-only logic (no embeddings available)
+            sorted_actions = sorted(
+                profile.action_preferences.items(),
+                key=lambda x: x[1], reverse=True
+            )
+            selected_actions = [a for a, _ in sorted_actions[:3] if _ > 0]
 
-        # 选择历史效果好的Skill
-        sorted_skills = sorted(
-            profile.skill_preferences.items(),
-            key=lambda x: x[1], reverse=True
-        )
-        selected_skills = [s for s, score in sorted_skills
-                           if s in available_skills and score > 0][:3]
+            sorted_skills = sorted(
+                profile.skill_preferences.items(),
+                key=lambda x: x[1], reverse=True
+            )
+            selected_skills = [s for s, score in sorted_skills
+                               if s in available_skills and score > 0][:3]
+
+            reasoning = "利用模式：基于历史经验选择最佳策略"
+            if profile.sequence_patterns:
+                best_pattern = max(profile.sequence_patterns,
+                                   key=lambda p: p.get("score", 0))
+                if best_pattern.get("score", 0) > 0.5:
+                    reasoning += f"\n参考成功模式：{best_pattern.get('description', '')}"
 
         if not selected_skills and available_skills:
             selected_skills = available_skills[:1]
-
-        # 查找成功的序列模式
-        reasoning = "利用模式：基于历史经验选择最佳策略"
-        if profile.sequence_patterns:
-            best_pattern = max(profile.sequence_patterns,
-                               key=lambda p: p.get("score", 0))
-            if best_pattern.get("score", 0) > 0.5:
-                reasoning += f"\n参考成功模式：{best_pattern.get('description', '')}"
 
         return {
             "actions": selected_actions if selected_actions
