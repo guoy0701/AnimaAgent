@@ -130,6 +130,8 @@ class ExperienceGraph:
         """添加一条关系边"""
         if source_id not in self.nodes or target_id not in self.nodes:
             return None
+        if source_id == target_id:
+            return None
 
         # 检查是否已存在同类型的边（有向边只查 source→target）
         for _, edge in self._forward.get(source_id, []):

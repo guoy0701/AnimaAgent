@@ -148,11 +148,12 @@ class CompetenceEmbedding:
                 (decompose_score + iterate_score + 0.01)
             )
 
-        # 从经验图谱的统计推断领域深度
-        total_nodes = graph_stats.get("total_nodes", 0)
-        if total_nodes > 50:
-            self.competence_scores["domain_depth"] = min(
-                1.0, total_nodes / 200)
+        # 从经验图谱的统计推断领域深度（仅在未从拓扑计算时使用）
+        if not topology_stats:
+            total_nodes = graph_stats.get("total_nodes", 0)
+            if total_nodes > 50:
+                self.competence_scores["domain_depth"] = min(
+                    1.0, total_nodes / 200)
         avg_strength = graph_stats.get("avg_strength", 0)
         self.competence_scores["reliability"] = min(1.0, avg_strength)
 

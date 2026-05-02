@@ -273,10 +273,12 @@ class StrategyNetwork:
         if reward > 0.5:
             profile.success_count += 1
 
-        # EMA alpha：防止分数无界增长（代替原来的累加方式）
+        # 过滤无效的 action 字符串
+        valid_action_values = {a.value for a in ActionType}
+        actions_taken = [a for a in actions_taken if a in valid_action_values]
+
         ema_alpha = 0.2
 
-        # 更新动作偏好（EMA）并记录尝试次数
         for action in actions_taken:
             current = profile.action_preferences.get(action, 0.0)
             profile.action_preferences[action] = ema_alpha * reward + (1 - ema_alpha) * current
@@ -356,7 +358,7 @@ class StrategyNetwork:
             lines.append("推荐的做事方式：")
             for action, score in top_actions:
                 if score > 0:
-                    lines.append(f"  - {action}（置信度：{min(score, 5):.1f}/5）")
+                    lines.append(f"  - {action}（偏好度：{score:.0%}）")
 
         top_skills = sorted(profile.skill_preferences.items(),
                             key=lambda x: x[1], reverse=True)[:3]
@@ -364,7 +366,7 @@ class StrategyNetwork:
             lines.append("推荐优先使用的Skill：")
             for skill, score in top_skills:
                 if score > 0:
-                    lines.append(f"  - {skill}（效果：{min(score, 5):.1f}/5）")
+                    lines.append(f"  - {skill}（偏好度：{score:.0%}）")
 
         if profile.sequence_patterns:
             best = profile.sequence_patterns[0]
