@@ -149,7 +149,8 @@ class PersonaLayer:
             "system_prompt_addition": full_context,
             "strategy": strategy,
             "activated_experiences": [(n.content, round(a, 2))
-                                     for n, a in activated[:5]],
+                                     for n, a in activated
+                                     if n.node_type != NodeType.SKILL][:5],
             "task_category": task_category.value,
         }
 
