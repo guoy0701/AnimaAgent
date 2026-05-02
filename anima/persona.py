@@ -31,6 +31,8 @@ import json
 import time
 from pathlib import Path
 
+import jieba
+
 from .experience_graph import ExperienceGraph, NodeType, EdgeType
 from .strategy import StrategyNetwork, TaskCategory, ActionType
 from .competence import CompetenceEmbedding
@@ -243,38 +245,47 @@ class PersonaLayer:
 
     def _discover_connections(self, new_node):
         """发现新节点与已有节点之间的潜在关联"""
-        keywords = new_node.content.lower().split()
+        new_words = set(jieba.lcut(new_node.content.lower()))
+        new_words = {w for w in new_words if len(w) > 1}
+        if not new_words:
+            return
+
         for existing_node in self.experience_graph.nodes.values():
             if existing_node.id == new_node.id:
                 continue
-            if existing_node.node_type == new_node.node_type:
-                # 同类型节点之间查找相似性
-                existing_words = set(existing_node.content.lower().split())
-                new_words = set(keywords)
-                overlap = len(existing_words & new_words)
-                total = len(existing_words | new_words)
-                if total > 0 and overlap / total > 0.5:
-                    self.experience_graph.add_edge(
-                        new_node.id, existing_node.id,
-                        EdgeType.SIMILAR, weight=overlap / total)
+            if existing_node.node_type != new_node.node_type:
+                continue
+
+            existing_words = set(jieba.lcut(existing_node.content.lower()))
+            existing_words = {w for w in existing_words if len(w) > 1}
+            if not existing_words:
+                continue
+
+            overlap = len(new_words & existing_words)
+            total = len(new_words | existing_words)
+            if total > 0 and overlap / total > 0.3:
+                self.experience_graph.add_edge(
+                    new_node.id, existing_node.id,
+                    EdgeType.SIMILAR, weight=overlap / total)
 
     def _extract_keywords(self, text: str) -> list[str]:
-        """从文本中提取关键词（简单实现）"""
-        stop_words = {"的", "了", "在", "是", "我", "有", "和", "就",
-                      "不", "人", "都", "一", "一个", "上", "也", "很",
-                      "到", "说", "要", "去", "你", "会", "着", "没有",
-                      "看", "好", "自己", "这", "他", "她", "它", "们",
-                      "the", "a", "an", "is", "are", "was", "were",
-                      "in", "on", "at", "to", "for", "of", "with",
-                      "and", "or", "but", "not", "this", "that",
-                      "i", "me", "my", "you", "your", "he", "she",
-                      "it", "we", "they", "can", "will", "do", "does",
-                      "help", "please", "want", "need", "make",
-                      "帮", "请", "想", "能", "把", "让", "给", "用",
-                      "做", "写", "看看", "一下"}
-        words = text.lower().replace("，", " ").replace("。", " ").replace(
-            "、", " ").replace("？", " ").replace("！", " ").split()
-        return [w for w in words if w not in stop_words and len(w) > 1]
+        """从文本中提取关键词（使用 jieba 分词，支持中文）"""
+        stop_words = {
+            "的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
+            "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去",
+            "你", "会", "着", "没有", "看", "好", "自己", "这", "他", "她",
+            "它", "们", "可以", "什么", "怎么", "那", "吗", "吧", "啊",
+            "帮", "请", "想", "能", "把", "让", "给", "用", "做", "写",
+            "看看", "一下", "下", "个", "来", "过", "被", "比", "从",
+            "the", "a", "an", "is", "are", "was", "were", "in", "on",
+            "at", "to", "for", "of", "with", "and", "or", "but", "not",
+            "this", "that", "i", "me", "my", "you", "your", "he", "she",
+            "it", "we", "they", "can", "will", "do", "does",
+            "help", "please", "want", "need", "make",
+        }
+        words = jieba.lcut(text)
+        return [w.strip() for w in words
+                if w.strip() and w.strip() not in stop_words and len(w.strip()) > 1]
 
     def _infer_category(self, task: str) -> TaskCategory:
         """从任务描述推断任务类别"""

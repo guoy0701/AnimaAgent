@@ -62,3 +62,49 @@ class TestFeedbackRecording:
 
         task_nodes = agent.persona.experience_graph.find_by_type(NodeType.TASK)
         assert len(task_nodes) == 1, f"Expected 1 task node, got {len(task_nodes)}"
+
+
+class TestChineseKeywords:
+    def test_extracts_meaningful_chinese_keywords(self):
+        persona = PersonaLayer("test")
+        keywords = persona._extract_keywords("分析上个月的用户留存数据")
+
+        assert len(keywords) >= 2, f"Got only {keywords}"
+        found_meaningful = any(
+            kw in ["分析", "用户", "留存", "数据", "用户留存", "留存数据", "上个月"]
+            for kw in keywords
+        )
+        assert found_meaningful, f"No meaningful keywords in {keywords}"
+
+    def test_chinese_keywords_can_find_related_nodes(self):
+        persona = PersonaLayer("test")
+        from anima.experience_graph import NodeType
+        persona.experience_graph.add_node(NodeType.CONCEPT, "用户留存分析方法")
+
+        keywords = persona._extract_keywords("帮我看看用户留存的情况")
+        results = persona.experience_graph.find_by_content(keywords)
+        assert len(results) > 0, "Should find related node via Chinese keywords"
+
+    def test_english_keywords_still_work(self):
+        persona = PersonaLayer("test")
+        keywords = persona._extract_keywords("analyze user retention data")
+        assert len(keywords) >= 2
+
+
+class TestChineseConnections:
+    def test_discovers_similar_chinese_tasks(self):
+        from anima.experience_graph import NodeType, EdgeType
+        persona = PersonaLayer("test")
+        persona.record_experience(
+            "分析用户留存数据", TaskCategory.DATA_ANALYSIS,
+            ["decompose_first"], ["sql_query"], "成功")
+        persona.record_experience(
+            "分析用户流失原因", TaskCategory.DATA_ANALYSIS,
+            ["search_first"], ["sql_query"], "成功")
+
+        task_nodes = persona.experience_graph.find_by_type(NodeType.TASK)
+        assert len(task_nodes) == 2
+
+        edges = persona.experience_graph.edges
+        similar_edges = [e for e in edges if e.edge_type == EdgeType.SIMILAR]
+        assert len(similar_edges) > 0, "Should discover similarity between related Chinese tasks"
