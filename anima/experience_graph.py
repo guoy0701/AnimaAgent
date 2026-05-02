@@ -258,6 +258,35 @@ class ExperienceGraph:
                                       EdgeType.SIMILAR,
                                       weight=combined_activation)
 
+    def find_by_embedding(self, query_embedding: list[float],
+                          top_k: int = 5,
+                          min_similarity: float = 0.1) -> list[tuple["Node", float]]:
+        """使用余弦相似度查找与 query_embedding 最相似的节点。
+
+        Find nodes most similar to query_embedding using cosine similarity.
+        Only considers nodes that have embeddings stored; skips the rest.
+
+        Args:
+            query_embedding: 查询向量
+            top_k: 返回前 K 个结果
+            min_similarity: 相似度阈值，低于此值的节点不返回
+
+        Returns:
+            list of (Node, similarity_score) sorted by descending similarity
+        """
+        from anima.embedding import cosine_similarity
+
+        results = []
+        for node in self.nodes.values():
+            if not node.embedding:
+                continue
+            sim = cosine_similarity(query_embedding, node.embedding)
+            if sim >= min_similarity:
+                results.append((node, sim))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
+
     def find_by_type(self, node_type: NodeType) -> list[Node]:
         """按类型查找节点"""
         return [n for n in self.nodes.values() if n.node_type == node_type]
