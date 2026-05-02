@@ -103,15 +103,17 @@ class PersonaLayer:
         """
         self.interaction_count += 1
 
-        # 1. 在经验图谱中搜索相关经验
+        # 1. 在经验图谱中搜索相关经验（排除 SKILL 节点，它们是结构节点不是经验）
         if self._embedding_provider:
             query_emb = self._embedding_provider.embed(task_description)
-            seed_results = self.experience_graph.find_by_embedding(query_emb, top_k=5)
-            seed_ids = [n.id for n, _ in seed_results]
+            seed_results = self.experience_graph.find_by_embedding(query_emb, top_k=10)
+            seed_ids = [n.id for n, _ in seed_results
+                        if n.node_type != NodeType.SKILL][:5]
         else:
             keywords = self._extract_keywords(task_description)
             seed_nodes = self.experience_graph.find_by_content(keywords)
-            seed_ids = [n.id for n in seed_nodes[:5]]
+            seed_ids = [n.id for n in seed_nodes
+                        if n.node_type != NodeType.SKILL][:5]
 
         activated = []
         experience_context = "没有找到相关历史经验。"
@@ -373,30 +375,53 @@ class PersonaLayer:
     def _infer_category(self, task: str) -> TaskCategory:
         """从任务描述推断任务类别"""
         category_keywords = {
-            TaskCategory.DATA_ANALYSIS: ["数据", "分析", "统计", "图表",
-                                         "data", "analysis", "chart"],
-            TaskCategory.CODE_WRITING: ["代码", "编程", "函数", "程序",
-                                        "code", "script", "function", "bug"],
-            TaskCategory.CONTENT_CREATION: ["写", "文章", "文案", "内容",
-                                            "write", "article", "content"],
-            TaskCategory.PROBLEM_SOLVING: ["问题", "解决", "修复", "错误",
-                                           "problem", "solve", "fix", "error"],
-            TaskCategory.COMMUNICATION: ["邮件", "回复", "沟通", "消息",
-                                         "email", "reply", "message"],
-            TaskCategory.RESEARCH: ["调研", "研究", "查找", "搜索",
-                                    "research", "search", "find"],
-            TaskCategory.PLANNING: ["计划", "规划", "安排", "策略",
-                                    "plan", "schedule", "strategy"],
-            TaskCategory.CREATIVE: ["创意", "设计", "创作", "灵感",
-                                    "creative", "design", "idea"],
+            TaskCategory.DATA_ANALYSIS: [
+                "数据", "分析", "统计", "图表", "报表", "指标", "留存",
+                "转化", "漏斗", "趋势", "预测", "ROI", "AB测试",
+                "取数", "看板", "大屏", "画像", "分群", "可视化",
+                "data", "analysis", "chart", "metric", "dashboard",
+                "retention", "funnel", "cohort",
+            ],
+            TaskCategory.CODE_WRITING: [
+                "代码", "编程", "函数", "程序", "脚本", "模块", "接口",
+                "系统", "开发", "搭建", "实现", "重构", "优化", "部署",
+                "后端", "前端", "API", "SDK", "爬虫", "权限", "登录",
+                "注册", "数据库", "索引", "缓存", "队列", "CI/CD",
+                "code", "script", "function", "module", "api", "bug",
+                "deploy", "refactor", "backend", "frontend",
+            ],
+            TaskCategory.CONTENT_CREATION: [
+                "文章", "文案", "内容", "报告", "文档", "说明",
+                "write", "article", "content", "document", "report",
+            ],
+            TaskCategory.PROBLEM_SOLVING: [
+                "问题", "解决", "修复", "错误", "排查", "定位", "故障",
+                "problem", "solve", "fix", "error", "debug", "issue",
+            ],
+            TaskCategory.COMMUNICATION: [
+                "邮件", "回复", "沟通", "消息", "通知", "反馈",
+                "email", "reply", "message", "communicate",
+            ],
+            TaskCategory.RESEARCH: [
+                "调研", "研究", "查找", "搜索", "对比", "竞品",
+                "research", "search", "find", "compare", "survey",
+            ],
+            TaskCategory.PLANNING: [
+                "计划", "规划", "安排", "策略", "方案", "架构",
+                "plan", "schedule", "strategy", "roadmap",
+            ],
+            TaskCategory.CREATIVE: [
+                "创意", "设计", "创作", "灵感", "原型", "UI", "UX",
+                "creative", "design", "idea", "prototype",
+            ],
         }
 
-        task_lower = task.lower()
+        task_words = set(jieba.lcut(task.lower()))
         best_cat = TaskCategory.UNKNOWN
         best_score = 0
 
-        for cat, keywords in category_keywords.items():
-            score = sum(1 for kw in keywords if kw in task_lower)
+        for cat, kw_list in category_keywords.items():
+            score = sum(1 for kw in kw_list if kw in task_words or kw in task.lower())
             if score > best_score:
                 best_score = score
                 best_cat = cat
