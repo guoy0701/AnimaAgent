@@ -54,6 +54,11 @@ class AnimaAgent:
         self.persona.register_skill(name, description, categories)
         print(f"[Anima] 注册Skill: {name}")
 
+    def configure_semantic(self, embedding_provider=None, extractor=None):
+        """启用语义层——让Agent具备真正的语义理解能力。"""
+        self.persona.configure_semantic(embedding_provider, extractor)
+        print(f"[Anima] 已启用语义层")
+
     def think(self, task: str) -> dict:
         """
         Agent的"思考"过程——面对一个新任务时的内部处理。
