@@ -117,8 +117,9 @@ class PersonaLayer:
         experience_context = "没有找到相关历史经验。"
         if seed_ids:
             activated = self.experience_graph.spreading_activation(seed_ids)
-            experience_context = self.experience_graph.extract_subgraph(
-                activated, max_nodes=8)
+            from anima.narrator import narrate_subgraph
+            experience_context = narrate_subgraph(
+                self.experience_graph, activated, max_stories=3)
 
         # 2. 从策略网络获取策略建议
         if not task_category:
