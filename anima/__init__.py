@@ -11,6 +11,8 @@ Anima - 有灵魂的AI Agent框架
 - AnimaAgent: 主Agent类，用户交互入口
 - EmbeddingProvider: 语义向量接口
 - ExperienceExtractor: 经验结构化提取接口
+- LLMProvider: 统一LLM接口（chat + embedding + extraction）
+- OpenAICompatibleProvider: 兼容Qwen/DeepSeek/GPT/Ollama等所有OpenAI格式API
 """
 
 from .experience_graph import ExperienceGraph, NodeType, EdgeType
@@ -21,6 +23,12 @@ from .agent import AnimaAgent
 from .embedding import EmbeddingProvider, MockEmbeddingProvider, cosine_similarity
 from .extractor import ExperienceExtractor, MockExtractor, ExtractionResult
 from .narrator import narrate_subgraph
+from .provider import LLMProvider
+
+try:
+    from .provider import OpenAICompatibleProvider
+except ImportError:
+    pass
 
 try:
     from .embedding import AnthropicEmbeddingProvider
@@ -42,4 +50,5 @@ __all__ = [
     "EmbeddingProvider", "MockEmbeddingProvider", "cosine_similarity",
     "ExperienceExtractor", "MockExtractor", "ExtractionResult",
     "narrate_subgraph",
+    "LLMProvider", "OpenAICompatibleProvider",
 ]
