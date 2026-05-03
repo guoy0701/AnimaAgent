@@ -18,6 +18,12 @@ python -X utf8 dry_comparison.py
 # 运行 Qwen 示例（需要 DASHSCOPE_API_KEY）
 python examples/qwen_quickstart.py
 
+# 启动 CLI 对话（需要 ANIMA_API_KEY 环境变量）
+python -m anima --name "我的助手"
+
+# Mock 模式（无需 API key）
+python -m anima --mock
+
 # 安装开发依赖
 pip install -e ".[dev]"
 

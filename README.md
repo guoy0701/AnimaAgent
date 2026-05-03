@@ -92,6 +92,31 @@ agent.feedback(0.9, skills_used=["python_coding", "data_viz"],
 # 下次对话时，Agent 会记住这次经验，给出更个性化的建议
 ```
 
+## CLI 直接对话
+
+```bash
+# 设置环境变量（以通义千问为例）
+export ANIMA_API_KEY=sk-xxx
+export ANIMA_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+export ANIMA_CHAT_MODEL=qwen-plus
+export ANIMA_EMBED_MODEL=text-embedding-v3
+
+# 启动
+python -m anima --name "我的助手"
+```
+
+```
+你: 帮我分析用户留存数据
+我的助手: [个性化回答，基于历史经验]
+
+你: /feedback 9       # 给上次回答打分（0-10）
+你: /status           # 查看 Agent 成长状态
+你: /sleep            # 让 Agent 整理记忆
+你: /quit             # 退出
+```
+
+无 API key 时可用 Mock 模式体验：`python -m anima --mock`
+
 ## 运行测试
 
 ```bash
