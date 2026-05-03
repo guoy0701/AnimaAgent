@@ -125,6 +125,41 @@ python -m pytest tests/ -v          # 75 个测试
 python -X utf8 dry_comparison.py    # 干对比实验（无需 API key）
 ```
 
+## 在 Claude Code 中使用
+
+```bash
+pip install anima-agent[claude-code,qwen]
+```
+
+在 `.claude/settings.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "anima": {
+      "command": "python",
+      "args": ["-m", "anima.integrations.claude_code.mcp_server"],
+      "env": {
+        "ANIMA_API_KEY": "你的key",
+        "ANIMA_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "ANIMA_CHAT_MODEL": "qwen-plus",
+        "ANIMA_EMBED_MODEL": "text-embedding-v3"
+      }
+    }
+  }
+}
+```
+
+安装后 Claude Code 会自动调用 AnimaAgent 获取个性化上下文，越用越懂你。
+
+## 三种使用方式
+
+| 方式 | 命令 | 适用场景 |
+|------|------|---------|
+| Python 模块 | `from anima import AnimaAgent` | 开发者集成到自己的应用 |
+| CLI 对话 | `python -m anima` | 直接体验独立 Agent |
+| Claude Code 插件 | 配置 MCP Server | 增强现有 Agent |
+
 ## 设计哲学
 
 > 大模型是基础设施，Skill是教材，Agent本身才是"人"。

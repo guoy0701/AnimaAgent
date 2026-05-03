@@ -37,17 +37,30 @@ pip install -e ".[qwen]"
 
 ```
 anima/
-├── agent.py              # AnimaAgent: 用户 API 入口（configure/chat/feedback/think）
-├── provider.py           # LLMProvider ABC + OpenAICompatibleProvider（Qwen/DeepSeek/GPT）
-├── persona.py            # PersonaLayer: 整合三大组件，生成 LLM system prompt
-├── experience_graph.py   # ExperienceGraph: 图结构记忆（激活扩散 + 赫布学习 + 遗忘衰减）
-├── strategy.py           # StrategyNetwork: 行为决策（EMA 学习 + 探索/利用平衡）
-├── competence.py         # CompetenceEmbedding: 能力画像（12维能力 + 5维风格 + 图拓扑）
-├── embedding.py          # EmbeddingProvider ABC + MockEmbeddingProvider
-├── extractor.py          # ExperienceExtractor ABC + MockExtractor（LLM 概念提取）
-├── narrator.py           # 子图叙事化（激活的经验 → 因果链故事）
-└── __init__.py           # 公共 API 导出
+├── __init__.py               # 公共 API 导出
+├── __main__.py               # Layer 2: CLI 界面（python -m anima）
+├── agent.py                  # AnimaAgent: 用户 API 入口（configure/chat/feedback）
+├── provider.py               # Layer 1: LLMProvider ABC + OpenAICompatibleProvider
+├── persona.py                # PersonaLayer: 整合三大组件，生成 LLM system prompt
+├── experience_graph.py       # ExperienceGraph: 图结构记忆（激活扩散 + 赫布学习）
+├── strategy.py               # StrategyNetwork: 行为决策（EMA 学习 + 探索/利用）
+├── competence.py             # CompetenceEmbedding: 能力画像（图拓扑 + 策略统计）
+├── embedding.py              # EmbeddingProvider ABC + Mock
+├── extractor.py              # ExperienceExtractor ABC + Mock（LLM 概念提取）
+├── narrator.py               # 子图叙事化（激活经验 → 因果链故事）
+└── integrations/
+    └── claude_code/          # Layer 3: Claude Code 插件
+        ├── mcp_server.py     # MCP Server（4 个工具）
+        └── skill.md          # Skill 定义
 ```
+
+### 三层架构
+
+- **Layer 1（核心模块）**：`anima/` 包，`pip install anima-agent` 后 `import anima` 使用
+- **Layer 2（独立 Agent）**：`python -m anima` 启动交互式 CLI
+- **Layer 3（插件）**：`anima/integrations/claude_code/` MCP Server + Skill
+
+三层互相不依赖。删掉任何一层，其他两层照常工作。
 
 ### 三大组件的职责边界
 
