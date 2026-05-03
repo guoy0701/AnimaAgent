@@ -59,44 +59,46 @@ Anima推翻了这个假设。在Anima中：
 
 ## 快速开始
 
+```bash
+pip install anima-agent[qwen]  # 或 [openai] [anthropic] [all]
+```
+
 ```python
-from anima import AnimaAgent, TaskCategory
+from anima import AnimaAgent
+from anima.provider import OpenAICompatibleProvider
 
-# 创建Agent
-agent = AnimaAgent("MyAgent")
+# 1. 创建 Provider（支持 Qwen/DeepSeek/GPT/Ollama 等所有 OpenAI 格式 API）
+provider = OpenAICompatibleProvider(
+    api_key="你的key",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",  # Qwen
+    chat_model="qwen-plus",
+    embed_model="text-embedding-v3",
+)
 
-# 注册Skill
+# 2. 创建 Agent 并配置
+agent = AnimaAgent("我的助手")
+agent.configure(provider)
 agent.register_skill("python_coding", "编写Python代码")
 agent.register_skill("data_viz", "数据可视化")
 
-# 处理任务（获取个性化上下文）
-context = agent.think("分析上个月的用户数据")
-# context["system_prompt_addition"] 可以注入到任何LLM的system prompt中
+# 3. 一步对话（Agent自动注入个性化上下文）
+response = agent.chat("分析上个月的用户留存数据")
+print(response)
 
-# 给予反馈（Agent从中学习）
-agent.feedback(
-    reward=0.9,  # -1到1
-    actions_taken=["decompose_first", "use_skill"],
-    skills_used=["python_coding", "data_viz"],
-    problems=["数据有缺失值"],
-    solutions=["用插值法填充"]
-)
+# 4. 给反馈（Agent从中学习）
+agent.feedback(0.9, skills_used=["python_coding", "data_viz"],
+               problems=["数据有缺失值"], solutions=["用中位数填充"])
 
-# 查看Agent状态
-print(agent.status())
-
-# 保存Agent的"灵魂"
-agent.export_soul("my_agent_soul.json")
+# 下次对话时，Agent 会记住这次经验，给出更个性化的建议
 ```
 
-## 运行Demo
+## 运行测试
 
 ```bash
-python demo.py
+pip install -e ".[dev]"
+python -m pytest tests/ -v          # 75 个测试
+python -X utf8 dry_comparison.py    # 干对比实验（无需 API key）
 ```
-
-Demo会创建两个初始状态完全相同的Agent，让它们经历不同的"人生"，
-然后观察面对同一个任务时的行为差异。
 
 ## 设计哲学
 
