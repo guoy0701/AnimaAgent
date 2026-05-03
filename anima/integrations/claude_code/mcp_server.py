@@ -90,7 +90,7 @@ def anima_think(task: str) -> str:
         }
         return json.dumps(result, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"error": f"anima_think 失败: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": "anima_think failed. Check server logs."}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -117,7 +117,7 @@ def anima_feedback(reward: float, skills_used: str = "",
 
         return f"已记录反馈（满意度 {reward:.0%}），Agent 已学习更新。"
     except Exception as e:
-        return json.dumps({"error": f"anima_feedback 失败: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": "anima_feedback failed. Check server logs."}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -141,7 +141,7 @@ def anima_status() -> str:
         }
         return json.dumps(summary, ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps({"error": f"anima_status 失败: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": "anima_status failed. Check server logs."}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -152,7 +152,7 @@ def anima_register_skill(name: str, description: str) -> str:
         agent.register_skill(name, description)
         return f"已注册技能: {name}"
     except Exception as e:
-        return json.dumps({"error": f"anima_register_skill 失败: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": "anima_register_skill failed. Check server logs."}, ensure_ascii=False)
 
 
 if __name__ == "__main__":
