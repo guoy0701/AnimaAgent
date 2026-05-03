@@ -1,57 +1,59 @@
-# Anima — 有灵魂的AI Agent框架
+**English** | [中文](README_CN.md)
 
-> **Agent不是工具，是"人"。**
+# Anima — AI Agent Personality Framework
 
-> **Alpha 阶段** — 核心功能可用，欢迎试用和反馈。
+> **Agents are not tools, they are "people".**
 
-Anima 是一个 AI Agent 个性层框架。它可以作为 **Claude Code 等 Agent 的插件**，也可以**独立使用**。安装后，你的 Agent 会拥有记忆和成长性——越用越懂你。
+> **Alpha** — Core features working. Feedback welcome.
 
-**它做了什么？** 在你和大模型之间插入一个"个性层"：
-- **经验图谱**：用图结构记忆，通过激活扩散决定面对新任务时"想起"什么
-- **策略网络**：从你的反馈中学习"怎么做事"——哪些方法有效、哪些技能好用
-- **能力画像**：自动形成 Agent 的"身份"——擅长什么、什么做事风格
+Anima is a personality layer for AI agents. It can be used as a **plugin for Claude Code** (or other MCP-compatible agents) or as a **standalone AI assistant**. After installation, your agent gains memory and grows with you — the more you use it, the better it understands you.
 
-两个 Agent 学了同样的技能，但因为跟不同的主人工作，会逐渐表现出完全不同的行为模式。
+**What does it do?** It inserts a "personality layer" between you and the LLM:
+- **Experience Graph**: Graph-structured memory with spreading activation — determines what the agent "recalls" for each new task
+- **Strategy Network**: Learns from your feedback how to approach tasks — which methods work, which skills to prefer
+- **Competence Embedding**: Automatically forms the agent's "identity" — strengths, work style, domain expertise
 
-**不绑定任何大模型**——支持通义千问、DeepSeek、GPT、Ollama 等所有 OpenAI 兼容 API。
+Two agents with identical skills but different owners will gradually develop completely different behavior patterns.
 
----
-
-## 两种使用方式
-
-| 方式 | 适合谁 | 说明 |
-|------|--------|------|
-| **独立使用** | 想要一个有记忆的 AI 助手 | 直接对话，或在你的代码里调用 |
-| **作为插件** | 已经在用 Claude Code 等 Agent | 给现有 Agent 加上记忆能力 |
+**LLM-agnostic** — works with Qwen, DeepSeek, GPT, Ollama, and any OpenAI-compatible API.
 
 ---
 
-## 方式一：独立使用
+## Two Ways to Use
 
-### 安装
+| Mode | For whom | Description |
+|------|----------|-------------|
+| **Standalone** | Want an AI assistant with memory | Chat directly, or call from your code |
+| **Plugin** | Already using Claude Code, etc. | Add memory to your existing agent |
+
+---
+
+## Mode 1: Standalone
+
+### Install
 
 ```bash
 git clone https://github.com/guoy0701/AnimaAgent.git
 cd AnimaAgent
 pip install -e .
-pip install openai          # 用于连接 Qwen/DeepSeek/GPT 等 API
+pip install openai          # For connecting to Qwen/DeepSeek/GPT APIs
 ```
 
-### 配置
+### Configure
 
-在项目目录创建 `.env` 文件（参考 `.env.example`）：
+Create a `.env` file in the project directory (see `.env.example`):
 
 ```bash
 # .env
-ANIMA_API_KEY=sk-你的API密钥
-ANIMA_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1    # 通义千问
+ANIMA_API_KEY=sk-your-api-key
+ANIMA_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1    # Qwen
 ANIMA_CHAT_MODEL=qwen-plus
 ANIMA_EMBED_MODEL=text-embedding-v4
-ANIMA_AGENT_NAME=我的助手
+ANIMA_AGENT_NAME=MyAssistant
 ```
 
 <details>
-<summary>其他 API 的配置</summary>
+<summary>Other API configurations</summary>
 
 **DeepSeek**
 ```
@@ -67,10 +69,10 @@ ANIMA_API_KEY=sk-xxx
 ANIMA_CHAT_MODEL=gpt-4o-mini
 ANIMA_EMBED_MODEL=text-embedding-3-small
 ```
-（OpenAI 不需要设置 ANIMA_BASE_URL）
+(No ANIMA_BASE_URL needed for OpenAI)
 </details>
 
-### 命令行对话
+### CLI Chat
 
 ```bash
 python -m anima
@@ -78,24 +80,24 @@ python -m anima
 
 ```
 ═══════════════════════════════════════════════════
-  Anima — 有灵魂的AI助手
-  Agent: 我的助手
-  模型: qwen-plus
+  Anima — AI Assistant with Soul
+  Agent: MyAssistant
+  Model: qwen-plus
 ═══════════════════════════════════════════════════
 
-你: 帮我分析用户留存数据
-我的助手: [基于历史经验的个性化回答]
+You: Analyze user retention data
+MyAssistant: [Personalized response based on past experience]
 
-你: /feedback 9       # 给回答打分（0-10），Agent 从中学习
-你: /status           # 查看 Agent 成长状态
-你: /sleep            # 让 Agent 整理记忆
-你: /help             # 查看所有命令
-你: /quit             # 退出
+You: /feedback 9       # Rate the response (0-10), agent learns from it
+You: /status           # View agent growth status
+You: /sleep            # Consolidate memories
+You: /help             # Show all commands
+You: /quit             # Exit
 ```
 
-无 API key 时可用 Mock 模式体验框架效果：`python -m anima --mock`
+Try without an API key using mock mode: `python -m anima --mock`
 
-### 在代码中使用
+### Use in Code
 
 ```python
 from anima import AnimaAgent
@@ -105,36 +107,36 @@ provider = OpenAICompatibleProvider(
     api_key="sk-xxx",
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     chat_model="qwen-plus",
-    embed_model="text-embedding-v3",
+    embed_model="text-embedding-v4",
 )
 
-agent = AnimaAgent("我的助手")
+agent = AnimaAgent("MyAssistant")
 agent.configure(provider)
 
-response = agent.chat("帮我分析用户留存数据")
-agent.feedback(0.9)    # Agent 从反馈中学习
+response = agent.chat("Analyze user retention data")
+agent.feedback(0.9)    # Agent learns from feedback
 ```
 
 ---
 
-## 方式二：作为 Claude Code 插件
+## Mode 2: As a Claude Code Plugin
 
-让 Claude Code 拥有"记忆"——它会记住你的工作习惯，越用越懂你。
+Give Claude Code "memory" — it remembers your work habits and gets better over time.
 
-### 安装
+### Install
 
 ```bash
 git clone https://github.com/guoy0701/AnimaAgent.git
 cd AnimaAgent
 pip install -e .
-pip install openai          # 用于语义理解
+pip install openai
 ```
 
-### 配置
+### Configure
 
-**第一步：** 在项目目录创建 `.env` 文件（同上）。
+**Step 1:** Create a `.env` file in the project directory (same as above).
 
-**第二步：** 在 `.claude/settings.json` 中添加 MCP Server：
+**Step 2:** Add MCP Server to `.claude/settings.json`:
 
 ```json
 {
@@ -147,79 +149,79 @@ pip install openai          # 用于语义理解
 }
 ```
 
-**第三步：** 重启 Claude Code。
+**Step 3:** Restart Claude Code.
 
-安装后 Claude Code 会多出 4 个工具：
+After installation, Claude Code gains 4 new tools:
 
-| 工具 | 作用 |
-|------|------|
-| `anima_think` | 处理任务前获取个性化上下文（历史经验 + 策略建议） |
-| `anima_feedback` | 记录反馈，让 Agent 学习 |
-| `anima_status` | 查看 Agent 成长状态 |
-| `anima_register_skill` | 注册新技能 |
-
-Claude Code 会自动在合适的时候调用这些工具。你不需要改变使用习惯。
-
----
-
-## 卸载
-
-### 如果是独立使用
-
-```bash
-pip uninstall anima-agent
-```
-
-### 如果是 Claude Code 插件
-
-```bash
-# 第一步：从 .claude/settings.json 中删除 "anima" 配置段
-# 第二步：重启 Claude Code（此时 Claude Code 完全恢复原样）
-# 第三步：卸载包
-pip uninstall anima-agent
-```
-
-### 关于 Agent 数据
-
-卸载后，`anima_data/` 目录中的 Agent 数据（经验、策略、能力画像）会保留在磁盘上。
-
-- **保留数据**：下次重新安装后，Agent 从上次的状态继续成长
-- **删除数据**：`rm -rf anima_data/`，Agent 彻底消失，重装也是全新的
-
-**卸载不会影响 Claude Code 或任何其他 Agent。** AnimaAgent 是一个独立进程，卸载后不留任何钩子或后台程序。
-
----
-
-## 支持的 LLM
-
-AnimaAgent 不绑定任何特定大模型。通过 OpenAI 兼容接口，支持所有主流 API：
-
-| 平台 | 支持情况 |
+| Tool | Purpose |
 |------|---------|
-| 通义千问（Qwen） | ✅ |
+| `anima_think` | Get personalized context before handling a task (past experiences + strategy) |
+| `anima_feedback` | Record feedback so the agent learns |
+| `anima_status` | View agent growth status |
+| `anima_register_skill` | Register a new skill |
+
+Claude Code will automatically use these tools at the right time. No change to your workflow needed.
+
+---
+
+## Uninstall
+
+### Standalone
+
+```bash
+pip uninstall anima-agent
+```
+
+### Claude Code Plugin
+
+```bash
+# Step 1: Remove "anima" section from .claude/settings.json
+# Step 2: Restart Claude Code (fully restored to original state)
+# Step 3: Uninstall the package
+pip uninstall anima-agent
+```
+
+### About Agent Data
+
+After uninstalling, agent data in `anima_data/` (experiences, strategies, competence profile) remains on disk.
+
+- **Keep data**: Next time you reinstall, the agent resumes from where it left off
+- **Delete data**: `rm -rf anima_data/` — the agent is permanently gone
+
+**Uninstalling does not affect Claude Code or any other agent.** AnimaAgent runs as a separate process — no hooks, no background services left behind.
+
+---
+
+## Supported LLMs
+
+AnimaAgent is not tied to any specific LLM. Via the OpenAI-compatible interface, it works with all major APIs:
+
+| Platform | Status |
+|----------|--------|
+| Qwen (通义千问) | ✅ |
 | DeepSeek | ✅ |
 | OpenAI (GPT) | ✅ |
-| Ollama (本地模型) | ✅ |
+| Ollama (local models) | ✅ |
 | vLLM | ✅ |
-| 任何 OpenAI 格式 API | ✅ |
+| Any OpenAI-format API | ✅ |
 
 ---
 
-## 开发
+## Development
 
 ```bash
 git clone https://github.com/guoy0701/AnimaAgent
 cd AnimaAgent
 pip install -e ".[dev]"
-python -m pytest tests/ -v          # 83 个测试
-python -X utf8 dry_comparison.py    # 干对比实验（无需 API key）
+python -m pytest tests/ -v          # 83 tests
+python -X utf8 dry_comparison.py    # Dry comparison experiment (no API key needed)
 ```
 
-## 设计哲学
+## Design Philosophy
 
-> 大模型是基础设施，Skill是教材，Agent本身才是"人"。
+> LLMs are infrastructure. Skills are textbooks. The Agent itself is the "person".
 
-Agent 的真正价值不在于装了多少 Skill，而在于"底子"有多厚。这个底子是被时间和经历塑造的，不可压缩、不可轻易复制。
+An agent's true value is not how many skills it has installed, but how deep its foundation is. That foundation is shaped by time and experience — it cannot be compressed or easily replicated.
 
 ## License
 

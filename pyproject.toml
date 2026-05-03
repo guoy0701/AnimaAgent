@@ -1,7 +1,7 @@
 [project]
 name = "anima-agent"
 version = "0.2.0"
-description = "有灵魂的AI Agent框架 — 让Agent不再是工具，是人"
+description = "AI Agent Personality Framework — Agents are not tools, they are people"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
