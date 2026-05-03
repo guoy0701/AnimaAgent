@@ -48,6 +48,9 @@ class AnimaAgent:
         self._current_task = None
         self._current_context = None
 
+        # LLM Provider（通过 configure() 设置）
+        self._provider = None
+
     def register_skill(self, name: str, description: str,
                        categories: list[str] = None):
         """注册Skill"""
@@ -58,6 +61,49 @@ class AnimaAgent:
         """启用语义层——让Agent具备真正的语义理解能力。"""
         self.persona.configure_semantic(embedding_provider, extractor)
         print(f"[Anima] 已启用语义层")
+
+    def configure(self, provider=None, *,
+                  embedding_provider=None, extractor=None):
+        """
+        配置Agent的LLM能力。
+
+        方式一（推荐）：传入统一 provider
+            agent.configure(QwenProvider(...))
+
+        方式二：分别传入 embedding 和 extractor
+            agent.configure(embedding_provider=..., extractor=...)
+        """
+        if provider is not None:
+            self._provider = provider
+            self.persona.configure_semantic(
+                embedding_provider=provider,
+                extractor=provider,
+            )
+            print(f"[Anima] 已配置LLM Provider")
+        elif embedding_provider or extractor:
+            self.persona.configure_semantic(
+                embedding_provider=embedding_provider,
+                extractor=extractor,
+            )
+            print(f"[Anima] 已配置语义层组件")
+        else:
+            raise ValueError("需要提供 provider 或 embedding_provider/extractor")
+
+    def chat(self, message: str) -> str:
+        """
+        一步完成：思考 → 调用LLM → 返回响应。
+
+        这是最简单的使用方式。Agent自动注入个性化上下文。
+        调用后可以用 feedback() 给予反馈让Agent学习。
+        """
+        if self._provider is None or not hasattr(self._provider, 'chat'):
+            raise RuntimeError(
+                "需要先调用 agent.configure(provider) 配置LLM Provider 才能使用 chat()")
+
+        context = self.think(message)
+        system_prompt = self._build_full_system_prompt(context)
+        response = self._provider.chat(message, system=system_prompt)
+        return response
 
     def think(self, task: str) -> dict:
         """
