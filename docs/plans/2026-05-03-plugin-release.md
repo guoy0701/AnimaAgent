@@ -281,7 +281,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "AnimaAgent Team", email = "guoy0702@gmail.com"},
+    {name = "AnimaAgent Team", email = "guoy0701@gmail.com"},
 ]
 keywords = ["ai", "agent", "personality", "memory", "llm"]
 classifiers = [
