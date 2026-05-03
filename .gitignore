@@ -7,3 +7,5 @@ build/
 anima_data/
 .venv/
 .env
+docs/plans/
+docs/article-*
