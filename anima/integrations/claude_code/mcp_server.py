@@ -74,21 +74,23 @@ def anima_think(task: str) -> str:
     """获取 AnimaAgent 的个性化上下文。在开始处理用户任务前调用此工具，
     获取基于 Agent 历史经验的个性化建议（相关经验、策略建议、能力画像）。
     将返回的内容作为你回答时的参考背景。"""
-    agent = _get_agent()
-    context = agent.think(task)
-
-    result = {
-        "system_prompt_addition": context.get("system_prompt_addition", ""),
-        "task_category": context.get("task_category", "unknown"),
-        "strategy": {
-            "mode": context.get("strategy", {}).get("mode", ""),
-            "actions": context.get("strategy", {}).get("actions", []),
-            "skills": context.get("strategy", {}).get("skills", []),
-            "confidence": context.get("strategy", {}).get("confidence", 0),
-        },
-        "activated_experiences": context.get("activated_experiences", []),
-    }
-    return json.dumps(result, ensure_ascii=False, indent=2)
+    try:
+        agent = _get_agent()
+        context = agent.think(task)
+        result = {
+            "system_prompt_addition": context.get("system_prompt_addition", ""),
+            "task_category": context.get("task_category", "unknown"),
+            "strategy": {
+                "mode": context.get("strategy", {}).get("mode", ""),
+                "actions": context.get("strategy", {}).get("actions", []),
+                "skills": context.get("strategy", {}).get("skills", []),
+                "confidence": context.get("strategy", {}).get("confidence", 0),
+            },
+            "activated_experiences": context.get("activated_experiences", []),
+        }
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"anima_think 失败: {e}"}, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -99,48 +101,58 @@ def anima_feedback(reward: float, skills_used: str = "",
     skills_used: 使用的技能，逗号分隔（如 "python_coding,sql_query"）。
     problems: 遇到的问题，逗号分隔。
     solutions: 解决方案，逗号分隔。"""
-    agent = _get_agent()
+    try:
+        agent = _get_agent()
+        if agent._current_task is None:
+            return "没有待反馈的任务。请先使用 anima_think 处理一个任务。"
 
-    skills = [s.strip() for s in skills_used.split(",") if s.strip()] if skills_used else None
-    probs = [p.strip() for p in problems.split(",") if p.strip()] if problems else None
-    sols = [s.strip() for s in solutions.split(",") if s.strip()] if solutions else None
+        skills = [s.strip() for s in skills_used.split(",") if s.strip()] if skills_used else None
+        probs = [p.strip() for p in problems.split(",") if p.strip()] if problems else None
+        sols = [s.strip() for s in solutions.split(",") if s.strip()] if solutions else None
 
-    mapped_reward = reward * 2 - 1  # 0-1 映射到 -1 到 1
+        mapped_reward = reward * 2 - 1  # 0-1 映射到 -1 到 1
 
-    agent.feedback(mapped_reward, skills_used=skills,
-                   problems=probs, solutions=sols)
+        agent.feedback(mapped_reward, skills_used=skills,
+                       problems=probs, solutions=sols)
 
-    return f"已记录反馈（满意度 {reward:.0%}），Agent 已学习更新。"
+        return f"已记录反馈（满意度 {reward:.0%}），Agent 已学习更新。"
+    except Exception as e:
+        return json.dumps({"error": f"anima_feedback 失败: {e}"}, ensure_ascii=False)
 
 
 @mcp.tool()
 def anima_status() -> str:
     """查看 AnimaAgent 的当前状态，包括交互次数、能力画像、图谱统计等。"""
-    agent = _get_agent()
-    status = agent.status()
-
-    summary = {
-        "agent_name": status["agent_name"],
-        "interactions": status["interactions"],
-        "graph": {
-            "nodes": status["graph_stats"]["total_nodes"],
-            "edges": status["graph_stats"]["total_edges"],
-        },
-        "competence": {
-            "domain_tags": status["competence"]["domain_tags"],
-            "confidence": f"{status['competence']['confidence']:.0%}",
-        },
-        "skills": list(status.get("skills", {}).keys()),
-    }
-    return json.dumps(summary, ensure_ascii=False, indent=2)
+    try:
+        agent = _get_agent()
+        status = agent.status()
+        summary = {
+            "agent_name": status["agent_name"],
+            "interactions": status["interactions"],
+            "graph": {
+                "nodes": status["graph_stats"]["total_nodes"],
+                "edges": status["graph_stats"]["total_edges"],
+            },
+            "competence": {
+                "domain_tags": status["competence"]["domain_tags"],
+                "confidence": f"{status['competence']['confidence']:.0%}",
+            },
+            "skills": list(status.get("skills", {}).keys()),
+        }
+        return json.dumps(summary, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"anima_status 失败: {e}"}, ensure_ascii=False)
 
 
 @mcp.tool()
 def anima_register_skill(name: str, description: str) -> str:
     """为 Agent 注册一个新技能。注册后，Agent 在处理相关任务时会考虑使用此技能。"""
-    agent = _get_agent()
-    agent.register_skill(name, description)
-    return f"已注册技能: {name}"
+    try:
+        agent = _get_agent()
+        agent.register_skill(name, description)
+        return f"已注册技能: {name}"
+    except Exception as e:
+        return json.dumps({"error": f"anima_register_skill 失败: {e}"}, ensure_ascii=False)
 
 
 if __name__ == "__main__":
