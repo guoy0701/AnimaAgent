@@ -109,6 +109,11 @@ def handle_status(agent):
 
 
 def main():
+    from .dotenv_loader import load_dotenv
+    env_path = load_dotenv()
+    if env_path:
+        print(f"[Anima] 已加载配置: {env_path}")
+
     parser = argparse.ArgumentParser(
         description="AnimaAgent — 有灵魂的AI助手")
     parser.add_argument("--name", default=os.environ.get("ANIMA_AGENT_NAME", "Anima"),

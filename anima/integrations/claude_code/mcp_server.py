@@ -29,6 +29,9 @@ from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
+from anima.dotenv_loader import load_dotenv
+load_dotenv()
+
 mcp = FastMCP("AnimaAgent")
 
 _agent = None
