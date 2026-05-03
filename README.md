@@ -2,14 +2,18 @@
 
 > **Agent不是工具，是"人"。**
 
-Anima 是一个 AI Agent 个性层框架。它让 Agent 拥有记忆和成长性——越用越懂你。
+> **Alpha 阶段** — 核心功能可用，欢迎试用和反馈。
 
-核心能力：
-- **经验图谱**：用图结构记忆（不是向量数据库），通过激活扩散决定面对新任务时"想起"什么
+Anima 是一个 AI Agent 个性层框架。它可以作为 **Claude Code 等 Agent 的插件**，也可以**独立使用**。安装后，你的 Agent 会拥有记忆和成长性——越用越懂你。
+
+**它做了什么？** 在你和大模型之间插入一个"个性层"：
+- **经验图谱**：用图结构记忆，通过激活扩散决定面对新任务时"想起"什么
 - **策略网络**：从你的反馈中学习"怎么做事"——哪些方法有效、哪些技能好用
 - **能力画像**：自动形成 Agent 的"身份"——擅长什么、什么做事风格
 
 两个 Agent 学了同样的技能，但因为跟不同的主人工作，会逐渐表现出完全不同的行为模式。
+
+**不绑定任何大模型**——支持通义千问、DeepSeek、GPT、Ollama 等所有 OpenAI 兼容 API。
 
 ---
 
@@ -27,7 +31,9 @@ Anima 是一个 AI Agent 个性层框架。它让 Agent 拥有记忆和成长性
 ### 安装
 
 ```bash
-pip install anima-agent
+git clone https://github.com/guoy0701/AnimaAgent.git
+cd AnimaAgent
+pip install -e .
 pip install openai          # 用于连接 Qwen/DeepSeek/GPT 等 API
 ```
 
@@ -40,7 +46,7 @@ pip install openai          # 用于连接 Qwen/DeepSeek/GPT 等 API
 ANIMA_API_KEY=sk-你的API密钥
 ANIMA_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1    # 通义千问
 ANIMA_CHAT_MODEL=qwen-plus
-ANIMA_EMBED_MODEL=text-embedding-v3
+ANIMA_EMBED_MODEL=text-embedding-v4
 ANIMA_AGENT_NAME=我的助手
 ```
 
@@ -118,7 +124,9 @@ agent.feedback(0.9)    # Agent 从反馈中学习
 ### 安装
 
 ```bash
-pip install anima-agent
+git clone https://github.com/guoy0701/AnimaAgent.git
+cd AnimaAgent
+pip install -e .
 pip install openai          # 用于语义理解
 ```
 
