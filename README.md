@@ -200,7 +200,7 @@ AnimaAgent 不绑定任何特定大模型。通过 OpenAI 兼容接口，支持�
 ## 开发
 
 ```bash
-git clone https://github.com/guoy0702/AnimaAgent
+git clone https://github.com/guoy0701/AnimaAgent
 cd AnimaAgent
 pip install -e ".[dev]"
 python -m pytest tests/ -v          # 83 个测试
